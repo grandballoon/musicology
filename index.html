@@ -387,6 +387,8 @@ flex-shrink: 0;
     <button class="btn" id="btnFifths" onclick="setView('fifths')">Circle of fifths</button>
     <button class="btn" id="btnPolygon" onclick="togglePolygon()">Show polygon</button>
     <button class="btn" id="btnMic" onclick="toggleMic()">🎙 Mic input</button>
+    <button class="btn" id="btnMidi" onclick="initMidi()">🎹 MIDI</button>
+    <button class="btn" id="btnSound" onclick="toggleSound()">🔇 Sound</button>
     <button class="btn" id="btnClear" onclick="clearNotes()">Clear</button>
   </div>
 
@@ -395,6 +397,9 @@ flex-shrink: 0;
   <div class="mic-bar">
     <div class="mic-dot" id="micDot"></div>
     <span id="micStatus">mic off</span>
+    <span style="margin-left:1rem;">·</span>
+    <div class="mic-dot" id="midiDot"></div>
+    <span id="midiStatus">midi off</span>
   </div>
 
   <!-- LEGEND -->
@@ -403,6 +408,7 @@ flex-shrink: 0;
 
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <script>
 // ─────────────────────────────────────────────
 // CONSTANTS
@@ -445,14 +451,112 @@ const POLYGON_SIDES = [12,12,6,4,3,12,2,12,3,4,6,12];
 // STATE
 // ─────────────────────────────────────────────
 
-let activeNotes = new Set();    // pitch classes 0–11 currently "on"
-let heldNotes   = new Set();    // notes held via keyboard clicks
+let activeNotes = new Set();    // pitch classes 0–11 currently "on" (computed)
+let keyboardHeld = new Set();   // notes held via computer keyboard
+let clickHeld    = new Set();   // notes toggled via on-screen keyboard clicks
+let midiHeld     = new Set();   // notes held via MIDI controller
+let micNote      = null;        // single pitch class from mic, or null
 let view = 'chromatic';         // 'chromatic' | 'fifths'
 let showPolygon = false;
 let micActive = false;
 let audioCtx = null, analyser = null, micStream = null;
 let animFrame = null;
 let pitchHistory = [];          // for smoothing mic detection
+let soundEnabled = false;
+
+// ─────────────────────────────────────────────
+// SYNTH ENGINE (Tone.js)
+// ─────────────────────────────────────────────
+
+// Electric piano: FM synthesis with a quick attack, moderate decay.
+// Two partials give the "tine" character of a Rhodes.
+let synth = null;
+const synthNotes = new Map();   // pc → Set of Tone note strings currently sounding
+
+// Default octave for non-MIDI sources (click, computer keyboard)
+const DEFAULT_OCTAVE = 4;
+
+function ensureSynth() {
+  if (synth) return;
+  synth = new Tone.PolySynth(Tone.FMSynth, {
+    maxPolyphony: 16,
+    voice: Tone.FMSynth,
+    options: {
+      harmonicity: 3.01,
+      modulationIndex: 1.2,
+      oscillator: { type: 'sine' },
+      modulation: { type: 'square' },
+      envelope: {
+        attack: 0.005,
+        decay: 0.4,
+        sustain: 0.2,
+        release: 0.8,
+      },
+      modulationEnvelope: {
+        attack: 0.01,
+        decay: 0.3,
+        sustain: 0.1,
+        release: 0.5,
+      },
+    },
+  });
+  // Light reverb for warmth
+  const reverb = new Tone.Reverb({ decay: 1.5, wet: 0.2 });
+  synth.connect(reverb);
+  reverb.toDestination();
+  synth.volume.value = -6;
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  const btn = document.getElementById('btnSound');
+  btn.classList.toggle('active', soundEnabled);
+  btn.textContent = soundEnabled ? '🔊 Sound' : '🔇 Sound';
+  if (soundEnabled) {
+    Tone.start(); // must be called from user gesture
+    ensureSynth();
+  } else {
+    // Release all sounding notes
+    if (synth) synth.releaseAll();
+    synthNotes.clear();
+  }
+}
+
+// Convert pitch class + octave to Tone note string like "C4", "F#5"
+const TONE_NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+function synthAttack(pc, octave, velocity) {
+  if (!soundEnabled || !synth) return;
+  const note = TONE_NOTE_NAMES[pc] + octave;
+  const vel = velocity !== undefined ? velocity / 127 : 0.7;
+  synth.triggerAttack(note, Tone.now(), vel);
+  if (!synthNotes.has(pc)) synthNotes.set(pc, new Set());
+  synthNotes.get(pc).add(note);
+}
+
+function synthRelease(pc, octave) {
+  if (!soundEnabled || !synth) return;
+  const note = TONE_NOTE_NAMES[pc] + octave;
+  synth.triggerRelease(note, Tone.now());
+  if (synthNotes.has(pc)) {
+    synthNotes.get(pc).delete(note);
+    if (synthNotes.get(pc).size === 0) synthNotes.delete(pc);
+  }
+}
+
+function synthReleaseAllForPC(pc) {
+  if (!soundEnabled || !synth || !synthNotes.has(pc)) return;
+  for (const note of synthNotes.get(pc)) {
+    synth.triggerRelease(note, Tone.now());
+  }
+  synthNotes.delete(pc);
+}
+
+function synthReleaseAll() {
+  if (!soundEnabled || !synth) return;
+  synth.releaseAll();
+  synthNotes.clear();
+}
 
 // ─────────────────────────────────────────────
 // CANVAS SETUP
@@ -724,23 +828,20 @@ function updateReadout() {
 // NOTE ACTIVATION
 // ─────────────────────────────────────────────
 
-function noteOn(pc) {
-  activeNotes.add(pc);
-  updateReadout();
-  updateKeyboard();
-}
-
-function noteOff(pc) {
-  activeNotes.delete(pc);
+function rebuildActiveNotes() {
+  activeNotes = new Set([...keyboardHeld, ...clickHeld, ...midiHeld]);
+  if (micNote !== null) activeNotes.add(micNote);
   updateReadout();
   updateKeyboard();
 }
 
 function clearNotes() {
-  heldNotes.clear();
-  activeNotes.clear();
-  updateReadout();
-  updateKeyboard();
+  clickHeld.clear();
+  keyboardHeld.clear();
+  midiHeld.clear();
+  micNote = null;
+  synthReleaseAll();
+  rebuildActiveNotes();
 }
 
 // ─────────────────────────────────────────────
@@ -788,7 +889,14 @@ function buildKeyboard() {
       div.innerHTML = `<span>${NOTE_NAMES[pc]}</span>`;
       div.style.setProperty('--wkey-color', NOTE_COLORS[pc]);
       div.addEventListener('mousedown', () => {
-        heldNotes.has(pc) ? (heldNotes.delete(pc), noteOff(pc)) : (heldNotes.add(pc), noteOn(pc));
+        if (clickHeld.has(pc)) {
+          clickHeld.delete(pc);
+          synthReleaseAllForPC(pc);
+        } else {
+          clickHeld.add(pc);
+          synthAttack(pc, DEFAULT_OCTAVE);
+        }
+        rebuildActiveNotes();
       });
       whiteContainer.appendChild(div);
     });
@@ -812,7 +920,14 @@ function buildKeyboard() {
       div.style.left = leftPct + '%';
       div.addEventListener('mousedown', (e) => {
         e.stopPropagation();
-        heldNotes.has(pc) ? (heldNotes.delete(pc), noteOff(pc)) : (heldNotes.add(pc), noteOn(pc));
+        if (clickHeld.has(pc)) {
+          clickHeld.delete(pc);
+          synthReleaseAllForPC(pc);
+        } else {
+          clickHeld.add(pc);
+          synthAttack(pc, DEFAULT_OCTAVE);
+        }
+        rebuildActiveNotes();
       });
       blackContainer.appendChild(div);
     });
@@ -865,10 +980,9 @@ function stopMic() {
   document.getElementById('micDot').className = 'mic-dot';
   document.getElementById('micStatus').textContent = 'mic off';
   document.getElementById('btnMic').classList.remove('active');
-  // Clear mic-detected notes
-  activeNotes = new Set(heldNotes);
-  updateReadout();
-  updateKeyboard();
+  if (micNote !== null) synthReleaseAllForPC(micNote);
+  micNote = null;
+  rebuildActiveNotes();
 }
 
 function detectPitch() {
@@ -889,19 +1003,18 @@ function detectPitch() {
     if (pitchHistory.length > 5) pitchHistory.shift();
     const mode = pitchHistory.filter(p => p === pc).length;
     if (mode >= 3) {
-      // Replace mic notes (not held notes) with detected
-      activeNotes = new Set(heldNotes);
-      activeNotes.add(pc);
-      updateReadout();
-      updateKeyboard();
+      if (micNote !== null && micNote !== pc) synthReleaseAllForPC(micNote);
+      if (micNote !== pc) synthAttack(pc, DEFAULT_OCTAVE);
+      micNote = pc;
+      rebuildActiveNotes();
     }
   } else {
     document.getElementById('micDot').className = 'mic-dot searching';
     document.getElementById('micStatus').textContent = 'listening...';
     pitchHistory = [];
-    activeNotes = new Set(heldNotes);
-    updateReadout();
-    updateKeyboard();
+    if (micNote !== null) synthReleaseAllForPC(micNote);
+    micNote = null;
+    rebuildActiveNotes();
   }
 
   animFrame = requestAnimationFrame(detectPitch);
@@ -954,6 +1067,71 @@ function autoCorrelate(buffer, sampleRate) {
 }
 
 // ─────────────────────────────────────────────
+// MIDI INPUT
+// ─────────────────────────────────────────────
+
+let midiAccess = null;
+
+async function initMidi() {
+  if (midiAccess) return; // already initialized
+  if (!navigator.requestMIDIAccess) {
+    document.getElementById('midiStatus').textContent = 'not supported';
+    return;
+  }
+  try {
+    midiAccess = await navigator.requestMIDIAccess();
+    midiAccess.onstatechange = onMidiStateChange;
+    bindMidiInputs();
+    updateMidiStatus();
+    document.getElementById('btnMidi').classList.add('active');
+  } catch (e) {
+    document.getElementById('midiStatus').textContent = 'access denied';
+  }
+}
+
+function bindMidiInputs() {
+  for (const input of midiAccess.inputs.values()) {
+    input.onmidimessage = onMidiMessage;
+  }
+}
+
+function onMidiStateChange(e) {
+  // Re-bind on hot-plug
+  bindMidiInputs();
+  updateMidiStatus();
+}
+
+function updateMidiStatus() {
+  const inputs = Array.from(midiAccess.inputs.values());
+  const dot = document.getElementById('midiDot');
+  const status = document.getElementById('midiStatus');
+  if (inputs.length === 0) {
+    dot.className = 'mic-dot searching';
+    status.textContent = 'no device';
+  } else {
+    dot.className = 'mic-dot on';
+    status.textContent = inputs.map(i => i.name).join(', ');
+  }
+}
+
+function onMidiMessage(e) {
+  const [status, note, velocity] = e.data;
+  const command = status & 0xf0;
+  const pc = note % 12;
+  const octave = Math.floor(note / 12) - 1; // MIDI octave convention
+
+  if (command === 0x90 && velocity > 0) {
+    midiHeld.add(pc);
+    synthAttack(pc, octave, velocity);
+    rebuildActiveNotes();
+  } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
+    midiHeld.delete(pc);
+    synthRelease(pc, octave);
+    rebuildActiveNotes();
+  }
+}
+
+// ─────────────────────────────────────────────
 // LEGEND
 // ─────────────────────────────────────────────
 
@@ -994,8 +1172,9 @@ document.addEventListener('keydown', e => {
   const pc = KEY_MAP[e.key.toLowerCase()];
   if (pc !== undefined) {
     keysDown.add(e.key);
-    heldNotes.add(pc);
-    noteOn(pc);
+    keyboardHeld.add(pc);
+    synthAttack(pc, DEFAULT_OCTAVE);
+    rebuildActiveNotes();
   }
 });
 
@@ -1003,8 +1182,9 @@ document.addEventListener('keyup', e => {
   keysDown.delete(e.key);
   const pc = KEY_MAP[e.key.toLowerCase()];
   if (pc !== undefined) {
-    heldNotes.delete(pc);
-    noteOff(pc);
+    keyboardHeld.delete(pc);
+    synthRelease(pc, DEFAULT_OCTAVE);
+    rebuildActiveNotes();
   }
 });
 
