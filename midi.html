@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Harmonic Microworld</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Inconsolata:wght@300;400&display=swap');
+
+:root {
+–bg: #0a0a0f;
+–surface: #11111a;
+–rim: #1e1e30;
+–text: #c8c8e0;
+–text-dim: #555570;
+–gold: #c8a84b;
+–gold-dim: #6b5820;
+–white: #e8e8f4;
+
+```
+/* Interval polygon colors — our own system, not George's */
+--c:  #e8e8f4;
+--cs: #d4a0c0;
+--d:  #a0b8e0;
+--ds: #80d4c0;
+--e:  #a0e080;
+--f:  #e0d060;
+--fs: #e09040;
+--g:  #e05050;
+--gs: #c040a0;
+--a:  #6060e0;
+--as: #40a0d0;
+--b:  #60c060;
+```
+
+}
+
+- { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+background: var(–bg);
+color: var(–text);
+font-family: ‘Inconsolata’, monospace;
+min-height: 100vh;
+display: flex;
+flex-direction: column;
+align-items: center;
+overflow-x: hidden;
+}
+
+/* Subtle star-field background */
+body::before {
+content: ‘’;
+position: fixed;
+inset: 0;
+background-image:
+radial-gradient(1px 1px at 15% 20%, rgba(200,200,240,0.3) 0%, transparent 100%),
+radial-gradient(1px 1px at 45% 8%, rgba(200,200,240,0.2) 0%, transparent 100%),
+radial-gradient(1px 1px at 72% 35%, rgba(200,200,240,0.25) 0%, transparent 100%),
+radial-gradient(1px 1px at 88% 12%, rgba(200,200,240,0.2) 0%, transparent 100%),
+radial-gradient(1px 1px at 30% 80%, rgba(200,200,240,0.15) 0%, transparent 100%),
+radial-gradient(1px 1px at 60% 70%, rgba(200,200,240,0.2) 0%, transparent 100%),
+radial-gradient(1px 1px at 5% 55%, rgba(200,200,240,0.15) 0%, transparent 100%),
+radial-gradient(1px 1px at 93% 68%, rgba(200,200,240,0.2) 0%, transparent 100%);
+pointer-events: none;
+z-index: 0;
+}
+
+header {
+text-align: center;
+padding: 2rem 1rem 0.5rem;
+position: relative;
+z-index: 1;
+}
+
+header h1 {
+font-family: ‘Cinzel’, serif;
+font-size: clamp(1.1rem, 3vw, 1.6rem);
+font-weight: 400;
+letter-spacing: 0.25em;
+color: var(–gold);
+text-transform: uppercase;
+}
+
+header p {
+font-size: 0.7rem;
+color: var(–text-dim);
+letter-spacing: 0.15em;
+margin-top: 0.3rem;
+}
+
+.main {
+display: flex;
+flex-direction: column;
+align-items: center;
+gap: 1.5rem;
+padding: 1rem;
+width: 100%;
+max-width: 600px;
+position: relative;
+z-index: 1;
+}
+
+/* ── CANVAS WRAPPER ── */
+.canvas-wrap {
+position: relative;
+width: min(480px, 92vw);
+height: min(480px, 92vw);
+}
+
+canvas {
+width: 100%;
+height: 100%;
+display: block;
+}
+
+/* ── NOTE READOUT ── */
+.readout {
+display: flex;
+align-items: center;
+gap: 2rem;
+background: var(–surface);
+border: 1px solid var(–rim);
+border-radius: 4px;
+padding: 0.8rem 1.6rem;
+width: min(480px, 92vw);
+}
+
+.note-display {
+display: flex;
+flex-direction: column;
+align-items: center;
+min-width: 3.5rem;
+}
+
+.note-name {
+font-family: ‘Cinzel’, serif;
+font-size: 2.8rem;
+line-height: 1;
+color: var(–white);
+transition: color 0.15s;
+}
+
+.note-label {
+font-size: 0.6rem;
+letter-spacing: 0.2em;
+color: var(–text-dim);
+text-transform: uppercase;
+margin-top: 0.2rem;
+}
+
+.divider {
+width: 1px;
+height: 3rem;
+background: var(–rim);
+}
+
+.info-block {
+display: flex;
+flex-direction: column;
+gap: 0.35rem;
+flex: 1;
+}
+
+.info-row {
+display: flex;
+justify-content: space-between;
+font-size: 0.72rem;
+}
+
+.info-key { color: var(–text-dim); letter-spacing: 0.08em; }
+.info-val { color: var(–text); letter-spacing: 0.05em; }
+
+/* ── KEYBOARD ── */
+.keyboard-wrap {
+width: min(480px, 92vw);
+}
+
+.keyboard-label {
+font-size: 0.6rem;
+letter-spacing: 0.2em;
+color: var(–text-dim);
+text-transform: uppercase;
+margin-bottom: 0.5rem;
+}
+
+.keyboard {
+position: relative;
+height: 80px;
+display: flex;
+}
+
+.white-keys {
+display: flex;
+width: 100%;
+gap: 2px;
+}
+
+.wkey {
+flex: 1;
+background: #d8d8e8;
+border-radius: 0 0 4px 4px;
+border: 1px solid #888;
+cursor: pointer;
+position: relative;
+transition: background 0.1s;
+display: flex;
+align-items: flex-end;
+justify-content: center;
+padding-bottom: 6px;
+}
+
+.wkey span {
+font-size: 0.55rem;
+color: #666;
+font-family: ‘Inconsolata’, monospace;
+letter-spacing: 0.05em;
+pointer-events: none;
+}
+
+.wkey.active, .wkey:hover { background: #ffffff; }
+.wkey.lit { background: var(–wkey-color, #ffffff); }
+
+.black-keys {
+position: absolute;
+top: 0;
+left: 0;
+width: 100%;
+height: 55%;
+pointer-events: none;
+}
+
+.bkey {
+position: absolute;
+width: 8%;
+height: 100%;
+background: #1a1a2a;
+border-radius: 0 0 3px 3px;
+border: 1px solid #000;
+cursor: pointer;
+pointer-events: all;
+transition: background 0.1s;
+}
+
+.bkey.active, .bkey:hover { background: #333355; }
+.bkey.lit { background: var(–bkey-color, #333355); }
+
+/* ── CONTROLS ── */
+.controls {
+display: flex;
+gap: 0.6rem;
+flex-wrap: wrap;
+justify-content: center;
+width: min(480px, 92vw);
+}
+
+.btn {
+font-family: ‘Inconsolata’, monospace;
+font-size: 0.65rem;
+letter-spacing: 0.15em;
+text-transform: uppercase;
+background: var(–surface);
+border: 1px solid var(–rim);
+color: var(–text-dim);
+padding: 0.4rem 0.9rem;
+border-radius: 2px;
+cursor: pointer;
+transition: all 0.15s;
+}
+
+.btn:hover, .btn.active {
+border-color: var(–gold-dim);
+color: var(–gold);
+}
+
+.btn.active {
+background: #1a1508;
+}
+
+/* ── MIC STATUS ── */
+.mic-bar {
+display: flex;
+align-items: center;
+gap: 0.8rem;
+font-size: 0.65rem;
+letter-spacing: 0.12em;
+color: var(–text-dim);
+}
+
+.mic-dot {
+width: 7px;
+height: 7px;
+border-radius: 50%;
+background: var(–rim);
+transition: background 0.3s;
+}
+
+.mic-dot.on { background: #50e090; box-shadow: 0 0 6px #50e090; }
+.mic-dot.searching { background: var(–gold); animation: pulse 1s infinite; }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ── LEGEND ── */
+.legend {
+width: min(480px, 92vw);
+display: grid;
+grid-template-columns: repeat(4, 1fr);
+gap: 0.3rem;
+padding-bottom: 2rem;
+}
+
+.leg-item {
+display: flex;
+align-items: center;
+gap: 0.4rem;
+font-size: 0.6rem;
+color: var(–text-dim);
+}
+
+.leg-dot {
+width: 8px;
+height: 8px;
+border-radius: 50%;
+flex-shrink: 0;
+}
+</style>
+
+</head>
+<body>
+
+<header>
+  <h1>Harmonic Microworld</h1>
+  <p>pitch · geometry · voice leading — after Euler 1739 · Forte 1973</p>
+</header>
+
+<div class="main">
+
+  <!-- CANVAS -->
+
+  <div class="canvas-wrap">
+    <canvas id="wheel" width="480" height="480"></canvas>
+  </div>
+
+  <!-- READOUT -->
+
+  <div class="readout">
+    <div class="note-display">
+      <div class="note-name" id="noteName">—</div>
+      <div class="note-label">pitch class</div>
+    </div>
+    <div class="divider"></div>
+    <div class="info-block">
+      <div class="info-row">
+        <span class="info-key">interval</span>
+        <span class="info-val" id="infoInterval">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">shape</span>
+        <span class="info-val" id="infoShape">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">semitones</span>
+        <span class="info-val" id="infoSemitones">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">pc class</span>
+        <span class="info-val" id="infoPCClass">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- KEYBOARD -->
+
+  <div class="keyboard-wrap">
+    <div class="keyboard-label">click to play · or use mic / midi</div>
+    <div class="keyboard" id="keyboard">
+      <div class="white-keys" id="whiteKeys"></div>
+      <div class="black-keys" id="blackKeys"></div>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+
+  <div class="controls">
+    <button class="btn active" id="btnChromatic" onclick="setView('chromatic')">Chromatic circle</button>
+    <button class="btn" id="btnFifths" onclick="setView('fifths')">Circle of fifths</button>
+    <button class="btn" id="btnPolygon" onclick="togglePolygon()">Show polygon</button>
+    <button class="btn" id="btnMic" onclick="toggleMic()">🎙 Mic input</button>
+    <button class="btn" id="btnClear" onclick="clearNotes()">Clear</button>
+  </div>
+
+  <!-- MIC STATUS -->
+
+  <div class="mic-bar">
+    <div class="mic-dot" id="micDot"></div>
+    <span id="micStatus">mic off</span>
+  </div>
+
+  <!-- LEGEND -->
+
+  <div class="legend" id="legend"></div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────
+
+const NOTE_NAMES = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+
+// Our own color system: hue rotates by ~30° per semitone,
+// sat/lightness chosen for dark-bg legibility
+const NOTE_COLORS = [
+  '#e8e8f4', // C  — near white
+  '#d4a0c0', // C♯ — rose
+  '#a0b8e0', // D  — steel blue
+  '#80d4c0', // D♯ — teal
+  '#a0e080', // E  — spring green
+  '#e0d060', // F  — amber
+  '#e09040', // F♯ — orange
+  '#e05050', // G  — coral red
+  '#c040a0', // G♯ — magenta
+  '#6060e0', // A  — indigo
+  '#40a0d0', // A♯ — sky
+  '#60c060', // B  — green
+];
+
+// Chromatic order: 0=C,1=C♯,...11=B
+// Circle-of-fifths order
+const FIFTHS_ORDER = [0,7,2,9,4,11,6,1,8,3,10,5]; // C G D A E B F♯ C♯ G♯ D♯ A♯ F
+
+const INTERVAL_NAMES = [
+  'Unison','Minor 2nd','Major 2nd','Minor 3rd',
+  'Major 3rd','Perfect 4th','Tritone','Perfect 5th',
+  'Minor 6th','Major 6th','Minor 7th','Major 7th'
+];
+
+// How many notes of each interval type form a closed polygon
+const POLYGON_SIDES = [12,12,6,4,3,12,2,12,3,4,6,12];
+// (unison/semitone/etc produce stars or dense patterns; we show them anyway)
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+
+let activeNotes = new Set();    // pitch classes 0–11 currently "on"
+let heldNotes   = new Set();    // notes held via keyboard clicks
+let view = 'chromatic';         // 'chromatic' | 'fifths'
+let showPolygon = false;
+let micActive = false;
+let audioCtx = null, analyser = null, micStream = null;
+let animFrame = null;
+let pitchHistory = [];          // for smoothing mic detection
+
+// ─────────────────────────────────────────────
+// CANVAS SETUP
+// ─────────────────────────────────────────────
+
+const canvas = document.getElementById('wheel');
+const ctx = canvas.getContext('2d');
+const SIZE = 480;
+const CX = SIZE / 2, CY = SIZE / 2;
+const R_OUTER = 200;   // outer rim of note ring
+const R_INNER = 158;   // inner rim of note ring
+const R_LABEL = 178;   // label radius
+const R_DOT   = 178;   // active dot radius
+const R_POLY  = 138;   // polygon vertex radius
+
+// ─────────────────────────────────────────────
+// CIRCLE VIEW HELPERS
+// ─────────────────────────────────────────────
+
+function noteAngle(pc) {
+  // Returns angle in radians for pitch class in current view
+  let pos;
+  if (view === 'chromatic') {
+    pos = pc; // 0..11
+  } else {
+    pos = FIFTHS_ORDER.indexOf(pc);
+  }
+  // 0=top (−π/2), clockwise
+  return (pos / 12) * Math.PI * 2 - Math.PI / 2;
+}
+
+function angleXY(angle, r) {
+  return {
+    x: CX + r * Math.cos(angle),
+    y: CY + r * Math.sin(angle)
+  };
+}
+
+// ─────────────────────────────────────────────
+// DRAW
+// ─────────────────────────────────────────────
+
+function draw() {
+  ctx.clearRect(0, 0, SIZE, SIZE);
+
+  // Background disc
+  const bgGrad = ctx.createRadialGradient(CX, CY, 0, CX, CY, R_OUTER + 30);
+  bgGrad.addColorStop(0, '#13131f');
+  bgGrad.addColorStop(1, '#0a0a0f');
+  ctx.beginPath();
+  ctx.arc(CX, CY, R_OUTER + 28, 0, Math.PI * 2);
+  ctx.fillStyle = bgGrad;
+  ctx.fill();
+
+  // Outer rim
+  ctx.beginPath();
+  ctx.arc(CX, CY, R_OUTER + 4, 0, Math.PI * 2);
+  ctx.strokeStyle = '#2a2a40';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Inner rim
+  ctx.beginPath();
+  ctx.arc(CX, CY, R_INNER - 4, 0, Math.PI * 2);
+  ctx.strokeStyle = '#1e1e30';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Axis lines (faint)
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * Math.PI * 2 - Math.PI / 2;
+    const p1 = angleXY(ang, R_INNER - 8);
+    const p2 = angleXY(ang, R_OUTER + 8);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // ── Draw polygon if enabled and 2+ notes active ──
+  const activeArr = Array.from(activeNotes).sort((a, b) => a - b);
+
+  if (showPolygon && activeArr.length >= 2) {
+    // Draw connecting lines between all active notes
+    ctx.beginPath();
+    const first = angleXY(noteAngle(activeArr[0]), R_POLY);
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < activeArr.length; i++) {
+      const p = angleXY(noteAngle(activeArr[i]), R_POLY);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+
+    // Fill with semi-transparent blend of note colors
+    const grd = ctx.createRadialGradient(CX, CY, 0, CX, CY, R_POLY);
+    const col = NOTE_COLORS[activeArr[0]];
+    grd.addColorStop(0, hexAlpha(col, 0.12));
+    grd.addColorStop(1, hexAlpha(col, 0.03));
+    ctx.fillStyle = grd;
+    ctx.fill();
+
+    // Polygon edges
+    ctx.beginPath();
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < activeArr.length; i++) {
+      const p = angleXY(noteAngle(activeArr[i]), R_POLY);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = hexAlpha(col, 0.55);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Vertex dots on polygon
+    for (const pc of activeArr) {
+      const p = angleXY(noteAngle(pc), R_POLY);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = NOTE_COLORS[pc];
+      ctx.fill();
+    }
+  }
+
+  // ── Draw note arcs ──
+  for (let i = 0; i < 12; i++) {
+    const ang = noteAngle(i);
+    const span = (Math.PI * 2 / 12) * 0.82;
+    const startAng = ang - span / 2;
+    const endAng   = ang + span / 2;
+    const isActive = activeNotes.has(i);
+    const color = NOTE_COLORS[i];
+
+    // Arc fill
+    ctx.beginPath();
+    ctx.arc(CX, CY, R_OUTER, startAng, endAng);
+    ctx.arc(CX, CY, R_INNER, endAng, startAng, true);
+    ctx.closePath();
+
+    if (isActive) {
+      const grad = ctx.createRadialGradient(CX, CY, R_INNER, CX, CY, R_OUTER);
+      grad.addColorStop(0, hexAlpha(color, 0.15));
+      grad.addColorStop(1, hexAlpha(color, 0.75));
+      ctx.fillStyle = grad;
+      ctx.fill();
+      // Glow stroke
+      ctx.strokeStyle = hexAlpha(color, 0.9);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+
+    // Label
+    const lp = angleXY(ang, R_LABEL);
+    ctx.font = isActive
+      ? `bold 13px "Cinzel", serif`
+      : `11px "Inconsolata", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = isActive ? color : 'rgba(200,200,220,0.35)';
+    ctx.fillText(NOTE_NAMES[i], lp.x, lp.y);
+
+    // Outer glow halo for active
+    if (isActive) {
+      ctx.beginPath();
+      ctx.arc(CX, CY, R_OUTER + 10, startAng - 0.01, endAng + 0.01);
+      ctx.arc(CX, CY, R_OUTER + 2, endAng + 0.01, startAng - 0.01, true);
+      ctx.closePath();
+      ctx.fillStyle = hexAlpha(color, 0.25);
+      ctx.fill();
+    }
+  }
+
+  // ── Center info ──
+  const sortedActive = Array.from(activeNotes).sort((a,b)=>a-b);
+  if (sortedActive.length === 0) {
+    ctx.font = '11px "Inconsolata", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(200,200,220,0.2)';
+    ctx.fillText('play a note', CX, CY - 8);
+    ctx.fillText('to begin', CX, CY + 10);
+  } else if (sortedActive.length === 1) {
+    const pc = sortedActive[0];
+    ctx.font = 'bold 28px "Cinzel", serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = NOTE_COLORS[pc];
+    ctx.fillText(NOTE_NAMES[pc], CX, CY - 4);
+    ctx.font = '9px "Inconsolata", monospace';
+    ctx.fillStyle = 'rgba(200,200,220,0.4)';
+    ctx.fillText('pc ' + pc, CX, CY + 18);
+  } else {
+    // Show interval / shape
+    const lo = sortedActive[0], hi = sortedActive[sortedActive.length - 1];
+    const interval = (hi - lo + 12) % 12;
+    ctx.font = '10px "Inconsolata", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(200,200,220,0.5)';
+    ctx.fillText(sortedActive.length + ' notes', CX, CY - 14);
+    ctx.fillStyle = NOTE_COLORS[lo];
+    ctx.font = '9px "Inconsolata", monospace';
+    if (sortedActive.length === 2) {
+      ctx.fillText(INTERVAL_NAMES[interval], CX, CY + 2);
+    }
+    ctx.fillStyle = 'rgba(200,200,220,0.3)';
+    ctx.fillText('set {' + sortedActive.join(',') + '}', CX, CY + 18);
+  }
+
+  // ── View label ──
+  ctx.font = '8px "Inconsolata", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(200,200,220,0.18)';
+  ctx.fillText(view === 'chromatic' ? 'CHROMATIC · semitone order' : 'CIRCLE OF FIFTHS · key order', CX, CY + R_INNER - 20);
+}
+
+// ─────────────────────────────────────────────
+// READOUT UPDATE
+// ─────────────────────────────────────────────
+
+function updateReadout() {
+  const active = Array.from(activeNotes).sort((a, b) => a - b);
+  const nameEl = document.getElementById('noteName');
+  const intEl  = document.getElementById('infoInterval');
+  const shpEl  = document.getElementById('infoShape');
+  const semEl  = document.getElementById('infoSemitones');
+  const pcEl   = document.getElementById('infoPCClass');
+
+  if (active.length === 0) {
+    nameEl.textContent = '—';
+    nameEl.style.color = '';
+    intEl.textContent = '—';
+    shpEl.textContent = '—';
+    semEl.textContent = '—';
+    pcEl.textContent  = '—';
+  } else if (active.length === 1) {
+    const pc = active[0];
+    nameEl.textContent = NOTE_NAMES[pc];
+    nameEl.style.color = NOTE_COLORS[pc];
+    intEl.textContent = 'Unison';
+    shpEl.textContent = 'Point';
+    semEl.textContent = '0';
+    pcEl.textContent  = pc;
+  } else {
+    const lo = active[0], hi = active[active.length - 1];
+    const interval = (hi - lo + 12) % 12;
+    nameEl.textContent = NOTE_NAMES[lo];
+    nameEl.style.color = NOTE_COLORS[lo];
+    intEl.textContent  = INTERVAL_NAMES[interval] || '—';
+    const sides = active.length;
+    const shapeNames = {2:'Line',3:'Triangle',4:'Quadrilateral',5:'Pentagon',6:'Hexagon',7:'Heptagon',
+                        8:'Octagon',9:'Nonagon',10:'Decagon',11:'Undecagon',12:'Dodecagon'};
+    shpEl.textContent = shapeNames[sides] || sides + '-gon';
+    semEl.textContent = interval;
+    pcEl.textContent  = '(' + active.join(',') + ')';
+  }
+
+  draw();
+}
+
+// ─────────────────────────────────────────────
+// NOTE ACTIVATION
+// ─────────────────────────────────────────────
+
+function noteOn(pc) {
+  activeNotes.add(pc);
+  updateReadout();
+  updateKeyboard();
+}
+
+function noteOff(pc) {
+  activeNotes.delete(pc);
+  updateReadout();
+  updateKeyboard();
+}
+
+function clearNotes() {
+  heldNotes.clear();
+  activeNotes.clear();
+  updateReadout();
+  updateKeyboard();
+}
+
+// ─────────────────────────────────────────────
+// VIEW / MODE CONTROLS
+// ─────────────────────────────────────────────
+
+function setView(v) {
+  view = v;
+  document.getElementById('btnChromatic').classList.toggle('active', v === 'chromatic');
+  document.getElementById('btnFifths').classList.toggle('active', v === 'fifths');
+  draw();
+}
+
+function togglePolygon() {
+  showPolygon = !showPolygon;
+  document.getElementById('btnPolygon').classList.toggle('active', showPolygon);
+  draw();
+}
+
+// ─────────────────────────────────────────────
+// KEYBOARD WIDGET
+// ─────────────────────────────────────────────
+
+// White keys in one octave: C D E F G A B (pc 0 2 4 5 7 9 11)
+// Black keys: C♯ D♯ F♯ G♯ A♯ (pc 1 3 6 8 10)
+// We show 2 octaves (C4–B5)
+
+const WHITE_PCS = [0,2,4,5,7,9,11];
+const BLACK_PCS = [1,3,-1,6,8,10,-1]; // -1 = no black key after E and B
+
+function buildKeyboard() {
+  const whiteContainer = document.getElementById('whiteKeys');
+  const blackContainer = document.getElementById('blackKeys');
+  whiteContainer.innerHTML = '';
+  blackContainer.innerHTML = '';
+
+  const numOctaves = 2;
+  const totalWhite = WHITE_PCS.length * numOctaves; // 14
+
+  for (let oct = 0; oct < numOctaves; oct++) {
+    WHITE_PCS.forEach((pc, i) => {
+      const div = document.createElement('div');
+      div.className = 'wkey';
+      div.dataset.pc = pc;
+      div.innerHTML = `<span>${NOTE_NAMES[pc]}</span>`;
+      div.style.setProperty('--wkey-color', NOTE_COLORS[pc]);
+      div.addEventListener('mousedown', () => {
+        heldNotes.has(pc) ? (heldNotes.delete(pc), noteOff(pc)) : (heldNotes.add(pc), noteOn(pc));
+      });
+      whiteContainer.appendChild(div);
+    });
+  }
+
+  // Position black keys
+  // Each white key is 100%/14 wide; black keys sit between whites
+  const ww = 100 / totalWhite; // % per white key
+  // Black key positions: after index 0(C),1(D) gap; after 3(F),4(G),5(A)
+  // Pattern repeats per octave
+  const bkOffsets = [0.65, 1.65, 3.65, 4.65, 5.65]; // offset in white-key units within octave
+
+  for (let oct = 0; oct < numOctaves; oct++) {
+    bkOffsets.forEach((off, bi) => {
+      const pc = [1,3,6,8,10][bi];
+      const div = document.createElement('div');
+      div.className = 'bkey';
+      div.dataset.pc = pc;
+      div.style.setProperty('--bkey-color', NOTE_COLORS[pc]);
+      const leftPct = (oct * WHITE_PCS.length + off) * ww;
+      div.style.left = leftPct + '%';
+      div.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        heldNotes.has(pc) ? (heldNotes.delete(pc), noteOff(pc)) : (heldNotes.add(pc), noteOn(pc));
+      });
+      blackContainer.appendChild(div);
+    });
+  }
+}
+
+function updateKeyboard() {
+  document.querySelectorAll('.wkey, .bkey').forEach(el => {
+    const pc = parseInt(el.dataset.pc);
+    el.classList.toggle('lit', activeNotes.has(pc));
+  });
+}
+
+// ─────────────────────────────────────────────
+// MIC / PITCH DETECTION
+// ─────────────────────────────────────────────
+
+async function toggleMic() {
+  if (micActive) {
+    stopMic();
+  } else {
+    await startMic();
+  }
+}
+
+async function startMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micStream = stream;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 4096;
+    const src = audioCtx.createMediaStreamSource(stream);
+    src.connect(analyser);
+    micActive = true;
+    document.getElementById('micDot').className = 'mic-dot searching';
+    document.getElementById('micStatus').textContent = 'listening...';
+    document.getElementById('btnMic').classList.add('active');
+    detectPitch();
+  } catch (e) {
+    document.getElementById('micStatus').textContent = 'mic denied';
+  }
+}
+
+function stopMic() {
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  if (audioCtx) audioCtx.close();
+  if (animFrame) cancelAnimationFrame(animFrame);
+  micActive = false;
+  document.getElementById('micDot').className = 'mic-dot';
+  document.getElementById('micStatus').textContent = 'mic off';
+  document.getElementById('btnMic').classList.remove('active');
+  // Clear mic-detected notes
+  activeNotes = new Set(heldNotes);
+  updateReadout();
+  updateKeyboard();
+}
+
+function detectPitch() {
+  if (!micActive) return;
+
+  const buffer = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(buffer);
+
+  const freq = autoCorrelate(buffer, audioCtx.sampleRate);
+
+  if (freq > 60 && freq < 2000) {
+    const pc = freqToPitchClass(freq);
+    document.getElementById('micDot').className = 'mic-dot on';
+    document.getElementById('micStatus').textContent = NOTE_NAMES[pc] + '  (' + Math.round(freq) + ' Hz)';
+
+    // Smooth: require 3 consistent readings
+    pitchHistory.push(pc);
+    if (pitchHistory.length > 5) pitchHistory.shift();
+    const mode = pitchHistory.filter(p => p === pc).length;
+    if (mode >= 3) {
+      // Replace mic notes (not held notes) with detected
+      activeNotes = new Set(heldNotes);
+      activeNotes.add(pc);
+      updateReadout();
+      updateKeyboard();
+    }
+  } else {
+    document.getElementById('micDot').className = 'mic-dot searching';
+    document.getElementById('micStatus').textContent = 'listening...';
+    pitchHistory = [];
+    activeNotes = new Set(heldNotes);
+    updateReadout();
+    updateKeyboard();
+  }
+
+  animFrame = requestAnimationFrame(detectPitch);
+}
+
+function freqToPitchClass(freq) {
+  // MIDI note = 69 + 12 * log2(freq / 440)
+  const midi = 69 + 12 * Math.log2(freq / 440);
+  return ((Math.round(midi) % 12) + 12) % 12;
+}
+
+// McLeod pitch method approximation (autocorrelation)
+function autoCorrelate(buffer, sampleRate) {
+  const SIZE = buffer.length;
+  let rms = 0;
+  for (let i = 0; i < SIZE; i++) rms += buffer[i] * buffer[i];
+  rms = Math.sqrt(rms / SIZE);
+  if (rms < 0.015) return -1; // too quiet
+
+  let r1 = 0, r2 = SIZE - 1;
+  for (let i = 0; i < SIZE / 2; i++) {
+    if (Math.abs(buffer[i]) < 0.2) { r1 = i; break; }
+  }
+  for (let i = 1; i < SIZE / 2; i++) {
+    if (Math.abs(buffer[SIZE - i]) < 0.2) { r2 = SIZE - i; break; }
+  }
+
+  const buf = buffer.slice(r1, r2);
+  const c = new Array(buf.length).fill(0);
+  for (let i = 0; i < buf.length; i++) {
+    for (let j = 0; j < buf.length - i; j++) {
+      c[i] += buf[j] * buf[j + i];
+    }
+  }
+
+  let d = 0;
+  while (c[d] > c[d + 1]) d++;
+  let maxVal = -1, maxPos = -1;
+  for (let i = d; i < buf.length; i++) {
+    if (c[i] > maxVal) { maxVal = c[i]; maxPos = i; }
+  }
+  if (maxPos < 0) return -1;
+
+  let T0 = maxPos;
+  const x1 = c[T0 - 1], x2 = c[T0], x3 = c[T0 + 1];
+  if (x1 !== undefined && x3 !== undefined) {
+    T0 = T0 + (x3 - x1) / (2 * (2 * x2 - x1 - x3));
+  }
+  return sampleRate / T0;
+}
+
+// ─────────────────────────────────────────────
+// LEGEND
+// ─────────────────────────────────────────────
+
+function buildLegend() {
+  const el = document.getElementById('legend');
+  NOTE_NAMES.forEach((name, i) => {
+    el.innerHTML += `
+      <div class="leg-item">
+        <div class="leg-dot" style="background:${NOTE_COLORS[i]}"></div>
+        <span>${name}</span>
+      </div>`;
+  });
+}
+
+// ─────────────────────────────────────────────
+// KEYBOARD INPUT (computer keyboard)
+// ─────────────────────────────────────────────
+
+const KEY_MAP = {
+  'a': 0,  // C
+  'w': 1,  // C♯
+  's': 2,  // D
+  'e': 3,  // D♯
+  'd': 4,  // E
+  'f': 5,  // F
+  't': 6,  // F♯
+  'g': 7,  // G
+  'y': 8,  // G♯
+  'h': 9,  // A
+  'u': 10, // A♯
+  'j': 11, // B
+};
+
+const keysDown = new Set();
+
+document.addEventListener('keydown', e => {
+  if (keysDown.has(e.key)) return;
+  const pc = KEY_MAP[e.key.toLowerCase()];
+  if (pc !== undefined) {
+    keysDown.add(e.key);
+    heldNotes.add(pc);
+    noteOn(pc);
+  }
+});
+
+document.addEventListener('keyup', e => {
+  keysDown.delete(e.key);
+  const pc = KEY_MAP[e.key.toLowerCase()];
+  if (pc !== undefined) {
+    heldNotes.delete(pc);
+    noteOff(pc);
+  }
+});
+
+// ─────────────────────────────────────────────
+// UTIL
+// ─────────────────────────────────────────────
+
+function hexAlpha(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ─────────────────────────────────────────────
+// MIDI INPUT
+// ─────────────────────────────────────────────
+
+const midiHeld = new Set(); // MIDI notes currently physically held
+
+function initMIDI() {
+  if (!navigator.requestMIDIAccess) return;
+  navigator.requestMIDIAccess().then(access => {
+    function connectInputs() {
+      for (const input of access.inputs.values()) {
+        input.onmidimessage = onMIDIMessage;
+      }
+    }
+    connectInputs();
+    access.onstatechange = connectInputs;
+  });
+}
+
+function onMIDIMessage(e) {
+  const [status, note, velocity] = e.data;
+  const cmd = status & 0xf0;
+  const pc = note % 12;
+
+  if (cmd === 0x90 && velocity > 0) {
+    // note on
+    midiHeld.add(pc);
+    heldNotes.add(pc);
+    noteOn(pc);
+  } else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) {
+    // note off
+    midiHeld.delete(pc);
+    heldNotes.delete(pc);
+    noteOff(pc);
+  }
+}
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+
+buildKeyboard();
+buildLegend();
+initMIDI();
+draw();
+</script>
+
+</body>
+</html>

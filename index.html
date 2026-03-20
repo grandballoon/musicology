@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -64,10 +63,10 @@ z-index: 0;
 }
 
 header {
-text-align: center;
-padding: 2rem 1rem 0.5rem;
-position: relative;
-z-index: 1;
+  text-align: center;
+  padding: 2rem 1rem 0.5rem;
+  position: relative;
+  z-index: 1;
 }
 
 header h1 {
@@ -87,21 +86,21 @@ margin-top: 0.3rem;
 }
 
 .main {
-display: flex;
-flex-direction: column;
-align-items: center;
-gap: 1.5rem;
-padding: 1rem;
-width: 100%;
-max-width: 600px;
-position: relative;
-z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1rem;
+  width: 100%;
+  max-width: 600px;
+  position: relative;
+  z-index: 1;
 }
 
 .canvas-wrap {
-position: relative;
-width: min(480px, 92vw);
-height: min(480px, 92vw);
+  position: relative;
+  width: min(480px, 92vw);
+  height: min(480px, 92vw);
 }
 
 canvas { width: 100%; height: 100%; display: block; }
@@ -196,7 +195,7 @@ color: var(--text-dim); padding: 0.4rem 0.9rem; border-radius: 2px; cursor: poin
   </div>
 
   <div class="keyboard-wrap">
-    <div class="keyboard-label">click to play · or use mic / midi</div>
+    <div class="keyboard-label">click to toggle · type keys (a–j) to hold · sustain to latch</div>
     <div class="keyboard" id="keyboard">
       <div class="white-keys" id="whiteKeys"></div>
       <div class="black-keys" id="blackKeys"></div>
@@ -318,6 +317,7 @@ let midiHeld     = new Set();
 let micNote      = null;
 let view = 'chromatic';         // 'chromatic' | 'fifths' | 'tonnetz'
 let showPolygon = false;
+let sustainMode = false;        // when true, keyboard keys toggle instead of hold
 let micActive = false;
 let audioCtx = null, analyser = null, micStream = null;
 let animFrame = null;
@@ -600,6 +600,7 @@ function draw() {
 
     const grd = ctx.createRadialGradient(CX, CY, 0, CX, CY, R_POLY);
     const col = NOTE_COLORS[activeArr[0]];
+    const grd = ctx.createRadialGradient(CX, CY, 0, CX, CY, R_POLY);
     grd.addColorStop(0, hexAlpha(col, 0.12));
     grd.addColorStop(1, hexAlpha(col, 0.03));
     ctx.fillStyle = grd;
@@ -808,7 +809,7 @@ function updateReadout() {
 }
 
 // ─────────────────────────────────────────────
-// NOTE ACTIVATION
+// NOTE ACTIVATION (unified interface)
 // ─────────────────────────────────────────────
 
 function rebuildActiveNotes() {
@@ -872,8 +873,19 @@ function togglePolygon() {
   draw();
 }
 
+function toggleSustain() {
+  sustainMode = !sustainMode;
+  document.getElementById('btnSustain').classList.toggle('active', sustainMode);
+  // When turning sustain off, release any keyboard-held notes
+  if (!sustainMode) {
+    keyboardHeld.clear();
+    physicalKeysDown.clear();
+    rebuildActiveNotes();
+  }
+}
+
 // ─────────────────────────────────────────────
-// KEYBOARD WIDGET
+// ON-SCREEN KEYBOARD WIDGET
 // ─────────────────────────────────────────────
 
 const WHITE_PCS = [0,2,4,5,7,9,11];
@@ -908,13 +920,14 @@ function buildKeyboard() {
 
   for (let oct = 0; oct < numOctaves; oct++) {
     bkOffsets.forEach((off, bi) => {
-      const pc = [1,3,6,8,10][bi];
+      const pc = bkPcs[bi];
       const div = document.createElement('div');
       div.className = 'bkey';
       div.dataset.pc = pc;
       div.style.setProperty('--bkey-color', NOTE_COLORS[pc]);
       div.style.left = (oct * WHITE_PCS.length + off) * ww + '%';
       div.addEventListener('mousedown', (e) => {
+        e.preventDefault();
         e.stopPropagation();
         if (clickHeld.has(pc)) { clickHeld.delete(pc); synthReleaseAllForPC(pc); }
         else { clickHeld.add(pc); synthAttack(pc, DEFAULT_OCTAVE); }
@@ -925,11 +938,83 @@ function buildKeyboard() {
   }
 }
 
-function updateKeyboard() {
+function updateKeyboardDisplay() {
   document.querySelectorAll('.wkey, .bkey').forEach(el => {
     el.classList.toggle('lit', activeNotes.has(parseInt(el.dataset.pc)));
   });
 }
+
+// ─────────────────────────────────────────────
+// COMPUTER KEYBOARD INPUT
+// ─────────────────────────────────────────────
+
+const KEY_MAP = {
+  'a': 0,  // C
+  'w': 1,  // C♯
+  's': 2,  // D
+  'e': 3,  // D♯
+  'd': 4,  // E
+  'f': 5,  // F
+  't': 6,  // F♯
+  'g': 7,  // G
+  'y': 8,  // G♯
+  'h': 9,  // A
+  'u': 10, // A♯
+  'j': 11, // B
+};
+
+// Track by the lowercase key string to avoid case mismatch issues
+const physicalKeysDown = new Set();
+
+document.addEventListener('keydown', (e) => {
+  // Ignore if focus is on a button or other interactive element
+  if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+
+  const k = e.key.toLowerCase();
+  if (physicalKeysDown.has(k)) return; // already held
+  const pc = KEY_MAP[k];
+  if (pc !== undefined) {
+    e.preventDefault();
+    ensureTone();
+    physicalKeysDown.add(k);
+
+    if (sustainMode) {
+      // Toggle: press to add, press again to remove
+      if (keyboardHeld.has(pc)) {
+        keyboardHeld.delete(pc);
+      } else {
+        keyboardHeld.add(pc);
+      }
+    } else {
+      // Normal hold mode
+      keyboardHeld.add(pc);
+    }
+    rebuildActiveNotes();
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  physicalKeysDown.delete(k);
+
+  // In sustain mode, don't release on key-up — notes stay latched
+  if (!sustainMode) {
+    const pc = KEY_MAP[k];
+    if (pc !== undefined) {
+      keyboardHeld.delete(pc);
+      rebuildActiveNotes();
+    }
+  }
+});
+
+// Also handle window blur: release all keyboard-held notes if user tabs away
+window.addEventListener('blur', () => {
+  if (keyboardHeld.size > 0) {
+    physicalKeysDown.clear();
+    keyboardHeld.clear();
+    rebuildActiveNotes();
+  }
+});
 
 // ─────────────────────────────────────────────
 // MIC / PITCH DETECTION
@@ -958,6 +1043,7 @@ function stopMic() {
   if (audioCtx) audioCtx.close();
   if (animFrame) cancelAnimationFrame(animFrame);
   micActive = false;
+  micNote = -1;
   document.getElementById('micDot').className = 'mic-dot';
   document.getElementById('micStatus').textContent = 'mic off';
   document.getElementById('btnMic').classList.remove('active');
@@ -1012,11 +1098,13 @@ function autoCorrelate(buffer, sampleRate) {
   for (let i = 1; i < SIZE / 2; i++) { if (Math.abs(buffer[SIZE - i]) < 0.2) { r2 = SIZE - i; break; } }
 
   const buf = buffer.slice(r1, r2);
+  if (buf.length < 2) return -1;
+
   const c = new Array(buf.length).fill(0);
   for (let i = 0; i < buf.length; i++) for (let j = 0; j < buf.length - i; j++) c[i] += buf[j] * buf[j + i];
 
   let d = 0;
-  while (c[d] > c[d + 1]) d++;
+  while (d < buf.length - 1 && c[d] > c[d + 1]) d++;
   let maxVal = -1, maxPos = -1;
   for (let i = d; i < buf.length; i++) { if (c[i] > maxVal) { maxVal = c[i]; maxPos = i; } }
   if (maxPos < 0) return -1;
@@ -1071,6 +1159,7 @@ function onMidiMessage(e) {
 
 function buildLegend() {
   const el = document.getElementById('legend');
+  el.innerHTML = '';
   NOTE_NAMES.forEach((name, i) => {
     el.innerHTML += `<div class="leg-item"><div class="leg-dot" style="background:${NOTE_COLORS[i]}"></div><span>${name}</span></div>`;
   });
