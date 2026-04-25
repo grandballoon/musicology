@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Keyboard Mapping — 5 Options</title>
+<link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inconsolata', monospace; background: oklch(95.5% 0.010 80); }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const COLORS = [
+  '#4848a8','#a83070','#1a60c8','#108888',
+  '#389020','#a89000','#c86010','#c02828',
+  '#9818a0','#2828c8','#0878b0','#208840',
+];
+
+const PC_TO_KEY  = {0:'A',1:'W',2:'S',3:'E',4:'D',5:'F',6:'T',7:'G',8:'Y',9:'H',10:'U',11:'J'};
+const KEY_TO_PC  = {'a':0,'w':1,'s':2,'e':3,'d':4,'f':5,'t':6,'g':7,'y':8,'h':9,'u':10,'j':11};
+const WHITE_PCS  = [0,2,4,5,7,9,11];
+const BLACK_PCS  = [1,3,6,8,10];
+const BK_OFFSETS = [0.65,1.65,3.65,4.65,5.65];
+
+const PIANO_W = 480;
+const NUM_OCT = 2;
+const WK_W = PIANO_W / (WHITE_PCS.length * NUM_OCT);  // ≈ 34.3px
+const WK_H = 72;
+const BK_W = WK_W * 0.60;
+const BK_H = WK_H * 0.58;
+
+// ─── Shared keyboard context (global keydown/up, shared by all demos) ────────
+const KbCtx = React.createContext(new Set());
+
+// ─── Key slot helpers ─────────────────────────────────────────────────────────
+function getWhiteSlots() {
+  const out = [];
+  for (let oct = 0; oct < NUM_OCT; oct++)
+    WHITE_PCS.forEach((pc, wi) =>
+      out.push({ pc, left: (oct * WHITE_PCS.length + wi) * WK_W, width: WK_W - 1.5 }));
+  return out;
+}
+function getBlackSlots() {
+  const out = [];
+  for (let oct = 0; oct < NUM_OCT; oct++)
+    BK_OFFSETS.forEach((off, bi) =>
+      out.push({ pc: BLACK_PCS[bi], left: (oct * WHITE_PCS.length + off) * WK_W, width: BK_W }));
+  return out;
+}
+const W_SLOTS = getWhiteSlots();
+const B_SLOTS = getBlackSlots();
+
+// ─── Per-demo piano state ─────────────────────────────────────────────────────
+function usePianoState() {
+  const kbActive = React.useContext(KbCtx);
+  const [clicked, setClicked] = React.useState(new Set());
+  const [hovered, setHovered] = React.useState(null);
+  const toggle = pc => setClicked(p => { const s = new Set(p); s.has(pc) ? s.delete(pc) : s.add(pc); return s; });
+  const isActive = pc => kbActive.has(pc) || clicked.has(pc);
+  return { isActive, hovered, setHovered, toggle };
+}
+
+// ─── Piano renderer ───────────────────────────────────────────────────────────
+function Piano({ isActive, hovered, setHovered, toggle, onWhite, onBlack }) {
+  return (
+    <div style={{ position:'relative', width:PIANO_W, height:WK_H, flexShrink:0, userSelect:'none' }}>
+      {/* White keys */}
+      {W_SLOTS.map(({ pc, left, width }, i) => {
+        const active = isActive(pc), hov = hovered === pc;
+        return (
+          <div key={i}
+            onMouseDown={() => toggle(pc)}
+            onMouseEnter={() => setHovered(pc)}
+            onMouseLeave={() => setHovered(null)}
+            style={{
+              position:'absolute', left, width, height:WK_H,
+              background: active ? COLORS[pc]+'1a' : hov ? '#f0ede6' : '#faf9f6',
+              border:`1px solid ${active ? COLORS[pc]+'88' : '#cdc9be'}`,
+              borderTop:`2px solid ${active ? COLORS[pc] : '#bfbcb0'}`,
+              borderRadius:'0 0 4px 4px', cursor:'pointer',
+              display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end',
+              paddingBottom:4, transition:'background 0.12s', zIndex:1,
+            }}
+          >
+            {onWhite && onWhite(pc, active, hov)}
+          </div>
+        );
+      })}
+      {/* Black keys */}
+      <div style={{ position:'absolute', inset:0, zIndex:2, pointerEvents:'none' }}>
+        <div style={{ position:'relative', height:BK_H, pointerEvents:'all' }}>
+          {B_SLOTS.map(({ pc, left, width }, i) => {
+            const active = isActive(pc), hov = hovered === pc;
+            return (
+              <div key={i}
+                onMouseDown={e => { e.stopPropagation(); toggle(pc); }}
+                onMouseEnter={() => setHovered(pc)}
+                onMouseLeave={() => setHovered(null)}
+                style={{
+                  position:'absolute', left, top:0, width, height:BK_H,
+                  background: active ? COLORS[pc] : hov ? '#3a3830' : '#2a2820',
+                  borderRadius:'0 0 3px 3px', cursor:'pointer',
+                  display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end',
+                  paddingBottom:2, transition:'background 0.12s',
+                }}
+              >
+                {onBlack && onBlack(pc, active, hov)}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Shared demo shell (description + toggle) ─────────────────────────────────
+const shellStyle = { padding:'14px 20px 16px', fontFamily:'Inconsolata,monospace' };
+const descStyle  = { fontSize:'0.6rem', letterSpacing:'0.14em', textTransform:'uppercase', color:'oklch(52% 0.014 80)' };
+
+function Shell({ description, show, onToggle, children }) {
+  return (
+    <div style={shellStyle}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+        <span style={descStyle}>{description}</span>
+        <button onClick={onToggle} style={{
+          fontFamily:'Inconsolata,monospace', fontSize:'0.58rem', letterSpacing:'0.12em',
+          textTransform:'uppercase', cursor:'pointer',
+          border:'1px solid oklch(87% 0.014 80)', borderRadius:3, padding:'2px 9px',
+          background: show ? 'oklch(86% 0.10 80)' : 'oklch(99.5% 0.004 80)',
+          color: show ? 'oklch(52% 0.13 75)' : 'oklch(52% 0.014 80)',
+          transition:'all 0.15s',
+        }}>
+          {show ? 'hide' : 'show'}
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── Keycap element (reused by A and C) ──────────────────────────────────────
+function Keycap({ letter, active, pc, size = 24, dark = false }) {
+  const bg = active ? COLORS[pc] : dark ? 'oklch(30% 0.01 80)' : 'oklch(99.5% 0.004 80)';
+  const bd = active ? COLORS[pc] : dark ? 'oklch(45% 0.01 80)' : 'oklch(78% 0.016 80)';
+  const bb = active ? COLORS[pc]+'cc' : dark ? 'oklch(20% 0.01 80)' : 'oklch(70% 0.016 80)';
+  const fc = active ? '#fff' : dark ? 'oklch(75% 0.008 80)' : 'oklch(38% 0.018 80)';
+  return (
+    <div style={{
+      width:size, height:size, borderRadius:Math.round(size/5),
+      background:bg, border:`1.5px solid ${bd}`, borderBottom:`3px solid ${bb}`,
+      display:'flex', alignItems:'center', justifyContent:'center',
+      fontSize: size < 22 ? '0.55rem' : '0.62rem', fontWeight:500,
+      color:fc, transition:'all 0.12s',
+      transform: active ? 'translateY(1px)' : 'none',
+      boxShadow: active ? 'none' : '0 1px 0 ' + bb,
+    }}>
+      {letter}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// A · Keycap Row
+// A row of physical keycap renders sits below the piano.
+// Keycaps depress and fill with pitch color when active.
+// ═══════════════════════════════════════════════════════════════════════════════
+function OptionA() {
+  const state = usePianoState();
+  const [show, setShow] = React.useState(true);
+  return (
+    <Shell description="Keycap row below the keyboard" show={show} onToggle={() => setShow(s => !s)}>
+      <Piano {...state} />
+      {show && (
+        <div style={{ position:'relative', width:PIANO_W, height:32, marginTop:7 }}>
+          {/* White key caps */}
+          {W_SLOTS.map(({ pc, left, width }, i) => (
+            <div key={i} style={{ position:'absolute', left: left + width/2 - 12, top:2 }}>
+              <Keycap letter={PC_TO_KEY[pc]} active={state.isActive(pc)} pc={pc} size={24} />
+            </div>
+          ))}
+          {/* Black key caps — first octave only to avoid crowding */}
+          {B_SLOTS.slice(0, 5).map(({ pc, left, width }, i) => (
+            <div key={i} style={{ position:'absolute', left: left + width/2 - 10, top:4 }}>
+              <Keycap letter={PC_TO_KEY[pc]} active={state.isActive(pc)} pc={pc} size={20} dark />
+            </div>
+          ))}
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// B · Ghost Letter on Key
+// The keyboard letter lives on the key surface at low opacity.
+// Sharpens and takes pitch color on hover or press.
+// ═══════════════════════════════════════════════════════════════════════════════
+function OptionB() {
+  const state = usePianoState();
+  const [show, setShow] = React.useState(true);
+
+  const onWhite = (pc, active, hov) => show && (
+    <span style={{
+      position:'absolute', top:'46%', left:'50%', transform:'translate(-50%,-50%)',
+      fontSize:'1.15rem', fontWeight:500,
+      color: active ? COLORS[pc] : 'oklch(55% 0.012 80)',
+      opacity: active ? 1 : hov ? 0.65 : 0.22,
+      transition:'opacity 0.15s, color 0.15s', pointerEvents:'none',
+    }}>{PC_TO_KEY[pc]}</span>
+  );
+
+  const onBlack = (pc, active, hov) => show && (
+    <span style={{
+      position:'absolute', top:'42%', left:'50%', transform:'translate(-50%,-50%)',
+      fontSize:'0.72rem', fontWeight:500,
+      color: active ? '#fff' : 'rgba(255,255,255,0.75)',
+      opacity: active ? 1 : hov ? 0.9 : 0.30,
+      transition:'opacity 0.15s', pointerEvents:'none',
+    }}>{PC_TO_KEY[pc]}</span>
+  );
+
+  return (
+    <Shell description="Letter ghosted on key surface — sharpens on hover & press" show={show} onToggle={() => setShow(s => !s)}>
+      <Piano {...state} onWhite={onWhite} onBlack={onBlack} />
+    </Shell>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// C · Hover Tooltip
+// Piano looks clean. Hover reveals a floating keycap badge above the key.
+// Active keys keep their badge visible and colored.
+// ═══════════════════════════════════════════════════════════════════════════════
+function OptionC() {
+  const state = usePianoState();
+  const [show, setShow] = React.useState(true);
+
+  // Tooltips rendered in a strip ABOVE the piano to avoid artboard clipping
+  const allSlots = [...W_SLOTS, ...B_SLOTS];
+
+  return (
+    <Shell description="Keycap badge appears above key on hover or press" show={show} onToggle={() => setShow(s => !s)}>
+      {/* Tooltip strip */}
+      <div style={{ position:'relative', width:PIANO_W, height:38, marginBottom:4 }}>
+        {show && allSlots.map(({ pc, left, width }, i) => {
+          const active = state.isActive(pc);
+          const hov = state.hovered === pc;
+          if (!active && !hov) return null;
+          const tipLeft = left + width / 2 - 13;
+          return (
+            <div key={i} style={{
+              position:'absolute', left:tipLeft, bottom:0,
+              display:'flex', flexDirection:'column', alignItems:'center',
+              animation:'fadeUp 0.12s ease-out', pointerEvents:'none',
+            }}>
+              <div style={{
+                width:26, height:26, borderRadius:4,
+                background: active ? COLORS[pc] : 'oklch(22% 0.018 80)',
+                border:`1.5px solid ${active ? COLORS[pc] : 'oklch(35% 0.01 80)'}`,
+                borderBottom:`3px solid ${active ? COLORS[pc]+'cc' : 'oklch(15% 0.01 80)'}`,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:'0.65rem', fontWeight:500, color:'#fff',
+                boxShadow:'0 2px 8px rgba(0,0,0,0.18)',
+              }}>
+                {PC_TO_KEY[pc]}
+              </div>
+              <div style={{
+                width:0, height:0,
+                borderLeft:'4px solid transparent', borderRight:'4px solid transparent',
+                borderTop:`4px solid ${active ? COLORS[pc] : 'oklch(22% 0.018 80)'}`,
+              }} />
+            </div>
+          );
+        })}
+      </div>
+      <Piano {...state} />
+    </Shell>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// D · Mini QWERTY Companion
+// A compact keyboard diagram below the piano. Mapped keys glow in pitch color.
+// Unmapped keys are muted. The visual grammar of the physical keyboard is preserved.
+// ═══════════════════════════════════════════════════════════════════════════════
+function OptionD() {
+  const state = usePianoState();
+  const [show, setShow] = React.useState(true);
+
+  const row1 = 'QWERTYUIOP'.split('');
+  const row2 = 'ASDFGHJKL'.split('');
+  const letterToPC = {};
+  Object.entries(PC_TO_KEY).forEach(([pc, k]) => { letterToPC[k] = parseInt(pc); });
+
+  const QKey = ({ letter }) => {
+    const pc = letterToPC[letter];
+    const isMapped = pc !== undefined;
+    const active = isMapped && state.isActive(pc);
+    return (
+      <div style={{
+        width:26, height:26, borderRadius:4, flexShrink:0,
+        background: active ? COLORS[pc] : isMapped ? 'oklch(98% 0.004 80)' : 'oklch(93% 0.006 80)',
+        border:`1.5px solid ${active ? COLORS[pc]+'cc' : isMapped ? 'oklch(76% 0.016 80)' : 'oklch(87% 0.010 80)'}`,
+        borderBottom:`3px solid ${active ? COLORS[pc]+'99' : isMapped ? 'oklch(66% 0.016 80)' : 'oklch(80% 0.010 80)'}`,
+        display:'flex', alignItems:'center', justifyContent:'center',
+        fontSize:'0.58rem', fontWeight: isMapped ? 500 : 400,
+        color: active ? '#fff' : isMapped ? 'oklch(28% 0.018 80)' : 'oklch(62% 0.010 80)',
+        transition:'all 0.12s',
+        transform: active ? 'translateY(1px)' : 'none',
+        boxShadow: active ? 'none' : '0 1px 0 oklch(75% 0.012 80)',
+      }}>
+        {letter}
+      </div>
+    );
+  };
+
+  return (
+    <Shell description="QWERTY companion — mapped keys illuminate in pitch color" show={show} onToggle={() => setShow(s => !s)}>
+      <Piano {...state} />
+      {show && (
+        <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:4, alignItems:'center' }}>
+          <div style={{ display:'flex', gap:4 }}>{row1.map(l => <QKey key={l} letter={l} />)}</div>
+          <div style={{ display:'flex', gap:4, paddingLeft:14 }}>{row2.map(l => <QKey key={l} letter={l} />)}</div>
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// E · Pitch-Color Letter Strip
+// A thin strip of cells below the piano, each tinted in the note's pitch color.
+// Deeply integrated with the app's existing color grammar.
+// ═══════════════════════════════════════════════════════════════════════════════
+function OptionE() {
+  const state = usePianoState();
+  const [show, setShow] = React.useState(true);
+
+  return (
+    <Shell description="Color-coded strip — letter cells inherit the app's pitch-class colors" show={show} onToggle={() => setShow(s => !s)}>
+      <Piano {...state} />
+      {show && (
+        <div style={{ position:'relative', width:PIANO_W, height:22, marginTop:5 }}>
+          {/* White key cells */}
+          {W_SLOTS.map(({ pc, left, width }, i) => {
+            const active = state.isActive(pc);
+            return (
+              <div key={i} style={{
+                position:'absolute', left, width: width + 0.5, height:22,
+                background: active ? COLORS[pc] : COLORS[pc]+'22',
+                border:`1px solid ${COLORS[pc]}50`, borderRadius:2,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:'0.6rem', fontWeight:500,
+                color: active ? '#fff' : COLORS[pc],
+                transition:'all 0.15s',
+              }}>
+                {PC_TO_KEY[pc]}
+              </div>
+            );
+          })}
+          {/* Black key cells — narrower, same height, slight overlap */}
+          {B_SLOTS.slice(0, 5).map(({ pc, left, width }, i) => {
+            const active = state.isActive(pc);
+            return (
+              <div key={i} style={{
+                position:'absolute', left: left - 1, top:0, width: width + 2, height:22,
+                background: active ? COLORS[pc] : COLORS[pc]+'35',
+                border:`1px solid ${COLORS[pc]}66`, borderRadius:2,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:'0.55rem', fontWeight:500,
+                color: active ? '#fff' : COLORS[pc],
+                transition:'all 0.15s', zIndex:2,
+              }}>
+                {PC_TO_KEY[pc]}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Shell>
+  );
+}
+
+
+// ─── App root ────────────────────────────────────────────────────────────────
+function App() {
+  const [kbActive, setKbActive] = React.useState(new Set());
+
+  React.useEffect(() => {
+    const dn = e => {
+      const pc = KEY_TO_PC[e.key.toLowerCase()];
+      if (pc !== undefined && !e.repeat)
+        setKbActive(p => { const s = new Set(p); s.add(pc); return s; });
+    };
+    const up = e => {
+      const pc = KEY_TO_PC[e.key.toLowerCase()];
+      if (pc !== undefined)
+        setKbActive(p => { const s = new Set(p); s.delete(pc); return s; });
+    };
+    window.addEventListener('keydown', dn);
+    window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up); };
+  }, []);
+
+  return (
+    <KbCtx.Provider value={kbActive}>
+      <DesignCanvas>
+        <DCSection id="s1" title="On the key surface">
+          <DCArtboard id="opt-b" label="B · Ghost Letter" width={520} height={150}>
+            <OptionB />
+          </DCArtboard>
+          <DCArtboard id="opt-c" label="C · Hover Tooltip" width={520} height={183}>
+            <OptionC />
+          </DCArtboard>
+        </DCSection>
+        <DCSection id="s2" title="Below the keyboard">
+          <DCArtboard id="opt-a" label="A · Keycap Row" width={520} height={182}>
+            <OptionA />
+          </DCArtboard>
+          <DCArtboard id="opt-e" label="E · Color Strip" width={520} height={170}>
+            <OptionE />
+          </DCArtboard>
+          <DCArtboard id="opt-d" label="D · Mini QWERTY" width={520} height={215}>
+            <OptionD />
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    </KbCtx.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
