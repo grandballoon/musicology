@@ -782,6 +782,29 @@ const NOTE_COLORS = [
   '#B5395A', // B  — deep rose     hsl(345, 54%, 46%)
 ];
 
+function boostSaturation(hex, factor) {
+  const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+  const max = Math.max(r,g,b), min = Math.min(r,g,b), l = (max+min)/2;
+  let h = 0, s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d/(2-max-min) : d/(max+min);
+    switch(max) {
+      case r: h = (g-b)/d + (g<b?6:0); break;
+      case g: h = (b-r)/d + 2; break;
+      case b: h = (r-g)/d + 4; break;
+    }
+    h /= 6;
+  }
+  const ns = Math.min(1, s * factor);
+  const hue2rgb = (p,q,t) => { if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p; };
+  const q = l < 0.5 ? l*(1+ns) : l+ns-l*ns, p = 2*l-q;
+  const toH = x => Math.round(x*255).toString(16).padStart(2,'0');
+  return '#' + toH(hue2rgb(p,q,h+1/3)) + toH(hue2rgb(p,q,h)) + toH(hue2rgb(p,q,h-1/3));
+}
+
+const NOTE_COLORS_BOOSTED = NOTE_COLORS.map(c => boostSaturation(c, 1.5));
+
 const FIFTHS_ORDER = [0,7,2,9,4,11,6,1,8,3,10,5];
 
 const INTERVAL_NAMES = [
@@ -813,6 +836,7 @@ const KEY_MAP = {
 const state = {
   keyboardHeld: new Set(),
   clickHeld:    new Set(),
+  canvasHeld:   new Set(),
   midiHeld:     new Map(),
   micNote:      null,
   micFreq:      null,
@@ -837,6 +861,7 @@ function rebuildActiveNotes() {
   const next = new Set([
     ...state.keyboardHeld,
     ...state.clickHeld,
+    ...state.canvasHeld,
     ...state.midiHeld.values(),
   ]);
   if (state.micNote !== null) next.add(state.micNote);
@@ -1002,6 +1027,7 @@ function renderNoteArc(pc, isActive) {
   const startAng = ang - span / 2;
   const endAng = ang + span / 2;
   const color = NOTE_COLORS[pc];
+  const colorBoosted = NOTE_COLORS_BOOSTED[pc];
 
   ctx.beginPath();
   ctx.arc(CX, CY, R_OUTER, startAng, endAng);
@@ -1009,9 +1035,9 @@ function renderNoteArc(pc, isActive) {
   ctx.closePath();
 
   if (isActive) {
-    ctx.fillStyle = hexAlpha(color, 0.14);
+    ctx.fillStyle = hexAlpha(colorBoosted, 0.14);
     ctx.fill();
-    ctx.strokeStyle = hexAlpha(color, 0.70);
+    ctx.strokeStyle = hexAlpha(colorBoosted, 0.70);
     ctx.lineWidth = 1.5;
     ctx.stroke();
   } else {
@@ -1027,7 +1053,7 @@ function renderNoteArc(pc, isActive) {
   ctx.font = isActive ? 'bold 13px "Cinzel", serif' : '11px "Inconsolata", monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = isActive ? color : 'rgba(120,110,95,0.45)';
+  ctx.fillStyle = isActive ? colorBoosted : 'rgba(60,50,40,0.75)';
   ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
 }
 
@@ -1503,6 +1529,41 @@ function buildQwerty() {
     });
   });
 }
+
+// ── Canvas note interaction ──
+function getPcAtCanvasPoint(x, y) {
+  const dx = x - CX, dy = y - CY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < R_INNER || dist > R_OUTER + 10) return null;
+  const angle = Math.atan2(dy, dx);
+  const pos = Math.round(((angle + Math.PI / 2) / (Math.PI * 2) * 12 + 12)) % 12;
+  return state.view === 'chromatic' ? pos : FIFTHS_ORDER[pos];
+}
+
+let canvasMousePc = null;
+
+canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const pc = getPcAtCanvasPoint(x, y);
+  if (pc !== null) {
+    canvasMousePc = pc;
+    state.canvasHeld.add(pc);
+    synthAttack(pcToNoteName(pc));
+    rebuildActiveNotes();
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  if (canvasMousePc !== null) {
+    state.canvasHeld.delete(canvasMousePc);
+    synthRelease(pcToNoteName(canvasMousePc));
+    canvasMousePc = null;
+    rebuildActiveNotes();
+  }
+});
 
 // ── Go ──
 buildKeyboard();
