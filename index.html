@@ -765,21 +765,21 @@ canvas {
 
 const NOTE_NAMES = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
 
-// Pitch-class colors — tuned for LIGHT background legibility.
-// Hue rotates ~30° per semitone; C shifted from near-white to deep indigo.
+// Pitch-class colors — Scriabin-inspired chromatic circle mapping.
+// C = red (hsl 351), stepping ~30° per semitone. After Scriabin's Prometheus color-tone system.
 const NOTE_COLORS = [
-  '#4848a8', // C  — deep indigo
-  '#a83070', // C♯ — deep rose
-  '#1a60c8', // D  — royal blue
-  '#108888', // D♯ — teal
-  '#389020', // E  — forest green
-  '#a89000', // F  — dark amber
-  '#c86010', // F♯ — burnt orange
-  '#c02828', // G  — crimson
-  '#9818a0', // G♯ — magenta
-  '#2828c8', // A  — deep indigo
-  '#0878b0', // A♯ — ocean blue
-  '#208840', // B  — deep green
+  '#D7263D', // C  — red           hsl(351, 70%, 50%)
+  '#E8572A', // C♯ — red-orange    hsl( 18, 78%, 54%)
+  '#F4A11A', // D  — amber-yellow  hsl( 38, 90%, 53%)
+  '#D4C400', // D♯ — yellow-green  hsl( 52,100%, 42%)
+  '#5BBF3E', // E  — green         hsl(108, 52%, 50%)
+  '#1DB388', // F  — teal-green    hsl(161, 72%, 40%)
+  '#1A8FD4', // F♯ — blue          hsl(205, 77%, 47%)
+  '#2655C7', // G  — blue-violet   hsl(224, 68%, 47%)
+  '#6A3BBF', // G♯ — violet        hsl(263, 53%, 49%)
+  '#9B2FC0', // A  — purple        hsl(287, 60%, 47%)
+  '#C4226E', // A♯ — magenta-rose  hsl(330, 71%, 45%)
+  '#B5395A', // B  — deep rose     hsl(345, 54%, 46%)
 ];
 
 const FIFTHS_ORDER = [0,7,2,9,4,11,6,1,8,3,10,5];
