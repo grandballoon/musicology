@@ -1087,7 +1087,7 @@ function renderNoteArc(pc, isActive) {
   ctx.fillStyle = 'rgba(60,50,40,0.75)';
   ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
   if (alpha > 0) {
-    ctx.font = 'bold 20px "Cinzel", serif';
+    ctx.font = 'bold 20px "Inconsolata", monospace';
     ctx.fillStyle = hexAlpha(colorBoosted, alpha);
     ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
   }
