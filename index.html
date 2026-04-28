@@ -1506,7 +1506,7 @@ function startChromaticAnimation() {
       state.view          = 'chromatic';
       render();
 
-      const fadeDuration = 3000;
+      const fadeDuration = 300;
       const fadeStart    = performance.now();
       function fadeTick(now) {
         const r = Math.min(1, (now - fadeStart) / fadeDuration);
@@ -1588,7 +1588,7 @@ function startRotationAnimation() {
       state.view          = 'fifths';
       render();
 
-      const fadeDuration = 3000;
+      const fadeDuration = 300;
       const fadeStart    = performance.now();
       function fadeTick(now) {
         const raw = Math.min(1, (now - fadeStart) / fadeDuration);
