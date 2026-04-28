@@ -747,8 +747,8 @@ canvas {
 
   <!-- CONTROLS -->
   <div class="controls">
-    <button class="btn active" id="btnChromatic" onclick="setView('chromatic')">Chromatic circle</button>
-    <button class="btn" id="btnFifths" onclick="setView('fifths')">Circle of fifths</button>
+    <button class="btn active" id="btnChromatic" onclick="switchToChromatic()">Chromatic circle</button>
+    <button class="btn" id="btnFifths" onclick="switchToFifths()">Circle of fifths</button>
     <button class="btn" id="btnPolygon" onclick="togglePolygon()">Show polygon</button>
     <button class="btn" id="btnMic" onclick="toggleMic()">Mic input</button>
     <button class="btn active" id="btnSound" onclick="toggleSound()">Sound on</button>
@@ -1476,7 +1476,18 @@ function toggleQwerty() {
 function setView(v) { state.view = v; render(); }
 function togglePolygon() { state.showPolygon = !state.showPolygon; render(); }
 
-function startFifthsAnimation() {
+function switchToChromatic() {
+  clearFifthsAnimation();
+  setView('chromatic');
+}
+
+function switchToFifths() {
+  if (state.animating || state.animPhase === 'rotate' || state.animPhase === 'fade') return;
+  if (state.view === 'fifths' && !state.animPhase) return;
+  startFifthsAnimation(true);
+}
+
+function startFifthsAnimation(autoRotate = false) {
   if (state.animating) return;
   state.animChords      = [];
   state.animHighlighted = new Set([0]);
@@ -1489,7 +1500,11 @@ function startFifthsAnimation() {
     if (step >= FIFTHS_PATH.length - 1) {
       state.animating = false;
       state.animPhase = 'traced';
-      render();
+      if (autoRotate) {
+        startRotationAnimation();
+      } else {
+        render();
+      }
       return;
     }
     const from = FIFTHS_PATH[step];
