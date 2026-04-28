@@ -754,6 +754,7 @@ canvas {
     <button class="btn active" id="btnSound" onclick="toggleSound()">Sound on</button>
     <button class="btn" id="btnQwerty" onclick="toggleQwerty()">Key map</button>
     <button class="btn" id="btnTraceFifths" onclick="startFifthsAnimation()">Trace fifths</button>
+    <button class="btn" id="btnRotateFifths" onclick="startRotationAnimation()" style="display:none">Rotate to fifths</button>
     <button class="btn" id="btnClearAnim" onclick="clearFifthsAnimation()" style="display:none">Clear trace</button>
     <button class="btn" id="btnClear" onclick="clearAll()">Clear</button>
   </div>
@@ -862,6 +863,8 @@ const state = {
   animating:       false,
   animChords:      [],
   animHighlighted: new Set(),
+  animPhase:       null,
+  animT:           0,
 };
 
 function rebuildActiveNotes() {
@@ -891,6 +894,15 @@ function hexAlpha(hex, alpha) {
 function noteAngle(pc, viewMode) {
   const pos = viewMode === 'chromatic' ? pc : FIFTHS_ORDER.indexOf(pc);
   return (pos / 12) * Math.PI * 2 - Math.PI / 2;
+}
+
+function currentNoteAngle(pc) {
+  if (state.animPhase === 'rotate') {
+    const chromAngle = (pc / 12) * Math.PI * 2 - Math.PI / 2;
+    const delta = (pc === FIFTHS_ORDER.indexOf(pc)) ? 0 : Math.PI;
+    return chromAngle + state.animT * delta;
+  }
+  return noteAngle(pc, state.view);
 }
 
 function angleXY(angle, r, cx, cy) {
@@ -1033,7 +1045,7 @@ function renderPolygon(sorted) {
 }
 
 function renderNoteArc(pc, isActive) {
-  const ang = noteAngle(pc, state.view);
+  const ang = currentNoteAngle(pc);
   const span = (Math.PI * 2 / 12) * 0.82;
   const startAng = ang - span / 2;
   const endAng = ang + span / 2;
@@ -1071,8 +1083,8 @@ function renderNoteArc(pc, isActive) {
 function renderAnimChords() {
   const R_CHORD = R_POLY;
   state.animChords.forEach(({ from, to }, i) => {
-    const p1 = angleXY(noteAngle(from, 'chromatic'), R_CHORD, CX, CY);
-    const p2 = angleXY(noteAngle(to,   'chromatic'), R_CHORD, CX, CY);
+    const p1 = angleXY(currentNoteAngle(from), R_CHORD, CX, CY);
+    const p2 = angleXY(currentNoteAngle(to),   R_CHORD, CX, CY);
     const isMostRecent = i === state.animChords.length - 1;
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
@@ -1083,7 +1095,7 @@ function renderAnimChords() {
   });
   // Dots at every visited node
   state.animHighlighted.forEach(pc => {
-    const p = angleXY(noteAngle(pc, 'chromatic'), R_CHORD, CX, CY);
+    const p = angleXY(currentNoteAngle(pc), R_CHORD, CX, CY);
     ctx.beginPath();
     ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
     ctx.fillStyle = NOTE_COLORS_BOOSTED[pc];
@@ -1175,9 +1187,11 @@ function renderControls() {
   document.getElementById('btnQwerty').classList.toggle('active', state.showQwerty);
   document.getElementById('qwertyWrap').classList.toggle('visible', state.showQwerty);
   const btnTrace = document.getElementById('btnTraceFifths');
-  if (btnTrace) btnTrace.disabled = state.animating;
+  if (btnTrace) btnTrace.disabled = state.animating || state.animPhase === 'rotate';
+  const btnRotate = document.getElementById('btnRotateFifths');
+  if (btnRotate) btnRotate.style.display = state.animPhase === 'traced' ? '' : 'none';
   const btnClearAnim = document.getElementById('btnClearAnim');
-  if (btnClearAnim) btnClearAnim.style.display = (state.animChords.length > 0 || state.animating) ? '' : 'none';
+  if (btnClearAnim) btnClearAnim.style.display = (state.animChords.length > 0 && state.animPhase !== 'rotate') ? '' : 'none';
   renderQwerty();
 }
 
@@ -1458,8 +1472,8 @@ function startFifthsAnimation() {
   let step = 0;
   function tick() {
     if (step >= FIFTHS_PATH.length - 1) {
-      // All chords drawn — hold the completed state
       state.animating = false;
+      state.animPhase = 'traced';
       render();
       return;
     }
@@ -1478,7 +1492,35 @@ function clearFifthsAnimation() {
   state.animating       = false;
   state.animChords      = [];
   state.animHighlighted = new Set();
+  state.animPhase       = null;
+  state.animT           = 0;
   render();
+}
+
+function startRotationAnimation() {
+  if (state.animPhase !== 'traced') return;
+  state.animPhase = 'rotate';
+  state.animT     = 0;
+  const duration  = 1600;
+  const startTime = performance.now();
+
+  function tick(now) {
+    const raw = Math.min(1, (now - startTime) / duration);
+    // ease in-out cubic
+    state.animT = raw < 0.5 ? 4*raw*raw*raw : 1 - Math.pow(-2*raw + 2, 3) / 2;
+    render();
+    if (raw < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      state.animT           = 1;
+      state.animPhase       = null;
+      state.animChords      = [];
+      state.animHighlighted = new Set();
+      state.view            = 'fifths';
+      render();
+    }
+  }
+  requestAnimationFrame(tick);
 }
 function toggleSound() {
   state.soundEnabled = !state.soundEnabled;
