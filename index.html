@@ -1486,50 +1486,72 @@ function switchToFifths() {
 }
 
 function startChromaticAnimation() {
+  const reversePath = [...FIFTHS_PATH].reverse();
+
   state.buttonView      = 'chromatic';
-  state.animHighlighted = new Set([0,1,2,3,4,5,6,7,8,9,10,11]);
+  state.animChords      = [];
+  state.animHighlighted = new Set([reversePath[0]]);
   state.animFadeAlpha   = 1;
-  state.animPhase       = 'rotate-back';
+  state.animating       = true;
+  state.animPhase       = null;
   state.animT           = 1;
   state.view            = 'fifths';
   render();
 
-  const duration  = 1600;
-  const startTime = performance.now();
-
-  function tick(now) {
-    const raw   = Math.min(1, (now - startTime) / duration);
-    const eased = raw < 0.5 ? 4*raw*raw*raw : 1 - Math.pow(-2*raw + 2, 3) / 2;
-    state.animT = 1 - eased;
-    render();
-    if (raw < 1) {
-      requestAnimationFrame(tick);
-    } else {
-      state.animT         = 0;
-      state.animPhase     = 'fade';
-      state.animFadeAlpha = 1;
-      state.view          = 'chromatic';
+  let step = 0;
+  function traceTick() {
+    if (step >= reversePath.length - 1) {
+      state.animating       = false;
+      state.animHighlighted = new Set([0,1,2,3,4,5,6,7,8,9,10,11]);
+      state.animPhase       = 'rotate-back';
       render();
 
-      const fadeDuration = 300;
-      const fadeStart    = performance.now();
-      function fadeTick(now) {
-        const r = Math.min(1, (now - fadeStart) / fadeDuration);
-        state.animFadeAlpha = 1 - r;
+      const duration  = 1600;
+      const startTime = performance.now();
+      function rotateTick(now) {
+        const raw   = Math.min(1, (now - startTime) / duration);
+        const eased = raw < 0.5 ? 4*raw*raw*raw : 1 - Math.pow(-2*raw + 2, 3) / 2;
+        state.animT = 1 - eased;
         render();
-        if (r < 1) {
-          requestAnimationFrame(fadeTick);
+        if (raw < 1) {
+          requestAnimationFrame(rotateTick);
         } else {
-          state.animPhase       = null;
-          state.animHighlighted = new Set();
-          state.animFadeAlpha   = 1;
+          state.animT         = 0;
+          state.animPhase     = 'fade';
+          state.animFadeAlpha = 1;
+          state.view          = 'chromatic';
           render();
+
+          const fadeStart = performance.now();
+          function fadeTick(now) {
+            const r = Math.min(1, (now - fadeStart) / 300);
+            state.animFadeAlpha = 1 - r;
+            render();
+            if (r < 1) {
+              requestAnimationFrame(fadeTick);
+            } else {
+              state.animPhase       = null;
+              state.animChords      = [];
+              state.animHighlighted = new Set();
+              state.animFadeAlpha   = 1;
+              render();
+            }
+          }
+          requestAnimationFrame(fadeTick);
         }
       }
-      requestAnimationFrame(fadeTick);
+      requestAnimationFrame(rotateTick);
+      return;
     }
+    const from = reversePath[step];
+    const to   = reversePath[step + 1];
+    state.animChords.push({ from, to });
+    state.animHighlighted.add(to);
+    render();
+    step++;
+    setTimeout(traceTick, 260);
   }
-  requestAnimationFrame(tick);
+  setTimeout(traceTick, 320);
 }
 
 function startFifthsAnimation(autoRotate = false) {
