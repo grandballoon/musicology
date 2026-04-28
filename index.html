@@ -753,7 +753,7 @@ canvas {
     <button class="btn" id="btnMic" onclick="toggleMic()">Mic input</button>
     <button class="btn active" id="btnSound" onclick="toggleSound()">Sound on</button>
     <button class="btn" id="btnQwerty" onclick="toggleQwerty()">Key map</button>
-    <button class="btn" id="btnClearAnim" onclick="clearFifthsAnimation()" style="display:none">Clear trace</button>
+
     <button class="btn" id="btnClear" onclick="clearAll()">Clear</button>
   </div>
 
@@ -1199,8 +1199,6 @@ function renderControls() {
   document.getElementById('btnQwerty').classList.toggle('active', state.showQwerty);
   document.getElementById('qwertyWrap').classList.toggle('visible', state.showQwerty);
   document.body.classList.toggle('qwerty-open', state.showQwerty);
-  const btnClearAnim = document.getElementById('btnClearAnim');
-  if (btnClearAnim) btnClearAnim.style.display = (state.animChords.length > 0 && state.animPhase !== 'rotate') ? '' : 'none';
   renderQwerty();
 }
 
