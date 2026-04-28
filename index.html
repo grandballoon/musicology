@@ -852,7 +852,7 @@ const state = {
   midiAccess:    null,
   midiConnected: false,
   midiDeviceName: null,
-  showQwerty:  false,
+  showQwerty:  true,
   micActive:    false,
   micDenied:    false,
   audioCtx:     null,
@@ -898,7 +898,7 @@ function noteAngle(pc, viewMode) {
 }
 
 function currentNoteAngle(pc) {
-  if (state.animPhase === 'rotate') {
+  if (state.animPhase === 'rotate' || state.animPhase === 'rotate-back') {
     const chromAngle = (pc / 12) * Math.PI * 2 - Math.PI / 2;
     const delta = (pc === FIFTHS_ORDER.indexOf(pc)) ? 0 : Math.PI;
     return chromAngle + state.animT * delta;
@@ -1200,8 +1200,9 @@ function renderControls() {
   document.getElementById('btnSound').classList.toggle('active', state.soundEnabled);
   document.getElementById('btnQwerty').classList.toggle('active', state.showQwerty);
   document.getElementById('qwertyWrap').classList.toggle('visible', state.showQwerty);
+  document.body.classList.toggle('qwerty-open', state.showQwerty);
   const btnTrace = document.getElementById('btnTraceFifths');
-  if (btnTrace) btnTrace.disabled = state.animating || state.animPhase === 'rotate';
+  if (btnTrace) btnTrace.disabled = state.animating || state.animPhase === 'rotate' || state.animPhase === 'rotate-back';
   const btnRotate = document.getElementById('btnRotateFifths');
   if (btnRotate) btnRotate.style.display = state.animPhase === 'traced' ? '' : 'none';
   const btnClearAnim = document.getElementById('btnClearAnim');
@@ -1476,14 +1477,62 @@ function setView(v) { state.view = v; render(); }
 function togglePolygon() { state.showPolygon = !state.showPolygon; render(); }
 
 function switchToChromatic() {
+  if (state.animPhase === 'rotate-back') return;
   clearFifthsAnimation();
-  setView('chromatic');
+  if (state.view === 'chromatic') return;
+  startChromaticAnimation();
 }
 
 function switchToFifths() {
-  if (state.animating || state.animPhase === 'rotate' || state.animPhase === 'fade') return;
+  if (state.animating || state.animPhase === 'rotate' || state.animPhase === 'rotate-back' || state.animPhase === 'fade') return;
   if (state.view === 'fifths' && !state.animPhase) return;
   startFifthsAnimation(true);
+}
+
+function startChromaticAnimation() {
+  state.animHighlighted = new Set([0,1,2,3,4,5,6,7,8,9,10,11]);
+  state.animFadeAlpha   = 1;
+  state.animPhase       = 'rotate-back';
+  state.animT           = 1;
+  state.view            = 'fifths';
+  render();
+
+  const duration  = 1600;
+  const startTime = performance.now();
+
+  function tick(now) {
+    const raw   = Math.min(1, (now - startTime) / duration);
+    const eased = raw < 0.5 ? 4*raw*raw*raw : 1 - Math.pow(-2*raw + 2, 3) / 2;
+    state.animT = 1 - eased;
+    render();
+    if (raw < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      state.animT         = 0;
+      state.animPhase     = 'fade';
+      state.animFadeAlpha = 1;
+      state.view          = 'chromatic';
+      render();
+
+      const fadeDuration = 3000;
+      const fadeStart    = performance.now();
+      function fadeTick(now) {
+        const r = Math.min(1, (now - fadeStart) / fadeDuration);
+        state.animFadeAlpha = 1 - r;
+        render();
+        if (r < 1) {
+          requestAnimationFrame(fadeTick);
+        } else {
+          state.animPhase       = null;
+          state.animHighlighted = new Set();
+          state.animFadeAlpha   = 1;
+          render();
+        }
+      }
+      requestAnimationFrame(fadeTick);
+    }
+  }
+  requestAnimationFrame(tick);
 }
 
 function startFifthsAnimation(autoRotate = false) {
