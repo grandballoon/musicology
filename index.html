@@ -851,6 +851,7 @@ const state = {
   midiConnected: false,
   midiDeviceName: null,
   showQwerty:  true,
+  buttonView:  'chromatic',
   micActive:    false,
   micDenied:    false,
   audioCtx:     null,
@@ -1191,8 +1192,8 @@ function renderKeyboard() {
 }
 
 function renderControls() {
-  document.getElementById('btnChromatic').classList.toggle('active', state.view === 'chromatic');
-  document.getElementById('btnFifths').classList.toggle('active', state.view === 'fifths');
+  document.getElementById('btnChromatic').classList.toggle('active', state.buttonView === 'chromatic');
+  document.getElementById('btnFifths').classList.toggle('active', state.buttonView === 'fifths');
   document.getElementById('btnPolygon').classList.toggle('active', state.showPolygon);
   document.getElementById('btnMic').classList.toggle('active', state.micActive);
   document.getElementById('btnSound').classList.toggle('active', state.soundEnabled);
@@ -1465,7 +1466,7 @@ function toggleQwerty() {
   document.body.classList.toggle('qwerty-open', state.showQwerty);
   renderControls();
 }
-function setView(v) { state.view = v; render(); }
+function setView(v) { state.view = v; state.buttonView = v; render(); }
 function togglePolygon() { state.showPolygon = !state.showPolygon; render(); }
 
 function switchToChromatic() {
@@ -1478,10 +1479,12 @@ function switchToChromatic() {
 function switchToFifths() {
   if (state.animating || state.animPhase === 'rotate' || state.animPhase === 'rotate-back' || state.animPhase === 'fade') return;
   if (state.view === 'fifths' && !state.animPhase) return;
+  state.buttonView = 'fifths';
   startFifthsAnimation(true);
 }
 
 function startChromaticAnimation() {
+  state.buttonView      = 'chromatic';
   state.animHighlighted = new Set([0,1,2,3,4,5,6,7,8,9,10,11]);
   state.animFadeAlpha   = 1;
   state.animPhase       = 'rotate-back';
@@ -1564,6 +1567,7 @@ function clearFifthsAnimation() {
   state.animHighlighted = new Set();
   state.animPhase       = null;
   state.animT           = 0;
+  state.buttonView      = state.view;
   render();
 }
 
