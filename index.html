@@ -753,6 +753,8 @@ canvas {
     <button class="btn" id="btnMic" onclick="toggleMic()">Mic input</button>
     <button class="btn active" id="btnSound" onclick="toggleSound()">Sound on</button>
     <button class="btn" id="btnQwerty" onclick="toggleQwerty()">Key map</button>
+    <button class="btn" id="btnTraceFifths" onclick="startFifthsAnimation()">Trace fifths</button>
+    <button class="btn" id="btnClearAnim" onclick="clearFifthsAnimation()" style="display:none">Clear trace</button>
     <button class="btn" id="btnClear" onclick="clearAll()">Clear</button>
   </div>
 
@@ -813,6 +815,8 @@ const INTERVAL_NAMES = [
   'Minor 6th','Major 6th','Minor 7th','Major 7th'
 ];
 
+const FIFTHS_PATH = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
+
 const SHAPE_NAMES = {
   2:'Line', 3:'Triangle', 4:'Quadrilateral', 5:'Pentagon', 6:'Hexagon',
   7:'Heptagon', 8:'Octagon', 9:'Nonagon', 10:'Decagon', 11:'Undecagon', 12:'Dodecagon'
@@ -853,8 +857,11 @@ const state = {
   audioCtx:     null,
   analyser:     null,
   micStream:    null,
-  animFrame:    null,
-  pitchHistory: [],
+  animFrame:       null,
+  pitchHistory:    [],
+  animating:       false,
+  animChords:      [],
+  animHighlighted: new Set(),
 };
 
 function rebuildActiveNotes() {
@@ -981,8 +988,12 @@ function renderCanvas(info) {
 
   // Note arcs
   for (let i = 0; i < 12; i++) {
-    renderNoteArc(i, state.activeNotes.has(i));
+    const isActive = state.activeNotes.has(i) || state.animHighlighted.has(i);
+    renderNoteArc(i, isActive);
   }
+
+  // Fifths animation chords
+  if (state.animChords.length > 0) renderAnimChords();
 
   renderCenterText(info);
 
@@ -1055,6 +1066,29 @@ function renderNoteArc(pc, isActive) {
   ctx.textBaseline = 'middle';
   ctx.fillStyle = isActive ? colorBoosted : 'rgba(60,50,40,0.75)';
   ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
+}
+
+function renderAnimChords() {
+  const R_CHORD = R_POLY;
+  state.animChords.forEach(({ from, to }, i) => {
+    const p1 = angleXY(noteAngle(from, 'chromatic'), R_CHORD, CX, CY);
+    const p2 = angleXY(noteAngle(to,   'chromatic'), R_CHORD, CX, CY);
+    const isMostRecent = i === state.animChords.length - 1;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], isMostRecent ? 0.85 : 0.35);
+    ctx.lineWidth = isMostRecent ? 2 : 1.2;
+    ctx.stroke();
+  });
+  // Dots at every visited node
+  state.animHighlighted.forEach(pc => {
+    const p = angleXY(noteAngle(pc, 'chromatic'), R_CHORD, CX, CY);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = NOTE_COLORS_BOOSTED[pc];
+    ctx.fill();
+  });
 }
 
 function renderCenterText(info) {
@@ -1140,6 +1174,10 @@ function renderControls() {
   document.getElementById('btnSound').classList.toggle('active', state.soundEnabled);
   document.getElementById('btnQwerty').classList.toggle('active', state.showQwerty);
   document.getElementById('qwertyWrap').classList.toggle('visible', state.showQwerty);
+  const btnTrace = document.getElementById('btnTraceFifths');
+  if (btnTrace) btnTrace.disabled = state.animating;
+  const btnClearAnim = document.getElementById('btnClearAnim');
+  if (btnClearAnim) btnClearAnim.style.display = (state.animChords.length > 0 || state.animating) ? '' : 'none';
   renderQwerty();
 }
 
@@ -1408,6 +1446,40 @@ function toggleQwerty() {
 }
 function setView(v) { state.view = v; render(); }
 function togglePolygon() { state.showPolygon = !state.showPolygon; render(); }
+
+function startFifthsAnimation() {
+  if (state.animating) return;
+  state.animChords      = [];
+  state.animHighlighted = new Set([0]);
+  state.animating       = true;
+  state.view            = 'chromatic';
+  render();
+
+  let step = 0;
+  function tick() {
+    if (step >= FIFTHS_PATH.length - 1) {
+      // All chords drawn — hold the completed state
+      state.animating = false;
+      render();
+      return;
+    }
+    const from = FIFTHS_PATH[step];
+    const to   = FIFTHS_PATH[step + 1];
+    state.animChords.push({ from, to });
+    state.animHighlighted.add(to);
+    render();
+    step++;
+    setTimeout(tick, 520);
+  }
+  setTimeout(tick, 640);
+}
+
+function clearFifthsAnimation() {
+  state.animating       = false;
+  state.animChords      = [];
+  state.animHighlighted = new Set();
+  render();
+}
 function toggleSound() {
   state.soundEnabled = !state.soundEnabled;
   if (!state.soundEnabled) synth.releaseAll();
