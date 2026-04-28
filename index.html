@@ -1257,6 +1257,8 @@ function renderMidiStatus() {
 const keysDown = new Set();
 
 document.addEventListener('keydown', e => {
+  if (e.metaKey && e.key === '1') { e.preventDefault(); switchToChromatic(); return; }
+  if (e.metaKey && e.key === '2') { e.preventDefault(); switchToFifths();    return; }
   if (keysDown.has(e.key)) return;
   const pc = KEY_MAP[e.key.toLowerCase()];
   if (pc !== undefined) {
