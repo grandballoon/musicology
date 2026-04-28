@@ -753,8 +753,6 @@ canvas {
     <button class="btn" id="btnMic" onclick="toggleMic()">Mic input</button>
     <button class="btn active" id="btnSound" onclick="toggleSound()">Sound on</button>
     <button class="btn" id="btnQwerty" onclick="toggleQwerty()">Key map</button>
-    <button class="btn" id="btnTraceFifths" onclick="startFifthsAnimation()">Trace fifths</button>
-    <button class="btn" id="btnRotateFifths" onclick="startRotationAnimation()" style="display:none">Rotate to fifths</button>
     <button class="btn" id="btnClearAnim" onclick="clearFifthsAnimation()" style="display:none">Clear trace</button>
     <button class="btn" id="btnClear" onclick="clearAll()">Clear</button>
   </div>
@@ -1201,10 +1199,6 @@ function renderControls() {
   document.getElementById('btnQwerty').classList.toggle('active', state.showQwerty);
   document.getElementById('qwertyWrap').classList.toggle('visible', state.showQwerty);
   document.body.classList.toggle('qwerty-open', state.showQwerty);
-  const btnTrace = document.getElementById('btnTraceFifths');
-  if (btnTrace) btnTrace.disabled = state.animating || state.animPhase === 'rotate' || state.animPhase === 'rotate-back';
-  const btnRotate = document.getElementById('btnRotateFifths');
-  if (btnRotate) btnRotate.style.display = state.animPhase === 'traced' ? '' : 'none';
   const btnClearAnim = document.getElementById('btnClearAnim');
   if (btnClearAnim) btnClearAnim.style.display = (state.animChords.length > 0 && state.animPhase !== 'rotate') ? '' : 'none';
   renderQwerty();
