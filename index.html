@@ -1055,32 +1055,42 @@ function renderNoteArc(pc, isActive) {
     ? (state.animPhase === 'fade' ? state.animFadeAlpha : 1)
     : 0;
 
+  // Always draw inactive base so it shows through during fade
   ctx.beginPath();
   ctx.arc(CX, CY, R_OUTER, startAng, endAng);
   ctx.arc(CX, CY, R_INNER, endAng, startAng, true);
   ctx.closePath();
+  ctx.fillStyle = 'rgba(180,170,155,0.10)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(160,150,135,0.18)';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
 
+  // Overlay active highlight, fading into the base
   if (alpha > 0) {
+    ctx.beginPath();
+    ctx.arc(CX, CY, R_OUTER, startAng, endAng);
+    ctx.arc(CX, CY, R_INNER, endAng, startAng, true);
+    ctx.closePath();
     ctx.fillStyle = hexAlpha(colorBoosted, 0.14 * alpha);
     ctx.fill();
     ctx.strokeStyle = hexAlpha(colorBoosted, 0.70 * alpha);
     ctx.lineWidth = 1.5;
     ctx.stroke();
-  } else {
-    ctx.fillStyle = 'rgba(180,170,155,0.10)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(160,150,135,0.18)';
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
   }
 
-  // Label
+  // Label: inactive base always visible, active overlaid and fading
   const lp = angleXY(ang, R_LABEL, CX, CY);
-  ctx.font = alpha > 0 ? 'bold 20px "Cinzel", serif' : '17px "Inconsolata", monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = alpha > 0 ? hexAlpha(colorBoosted, alpha) : 'rgba(60,50,40,0.75)';
+  ctx.font = '17px "Inconsolata", monospace';
+  ctx.fillStyle = 'rgba(60,50,40,0.75)';
   ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
+  if (alpha > 0) {
+    ctx.font = 'bold 20px "Cinzel", serif';
+    ctx.fillStyle = hexAlpha(colorBoosted, alpha);
+    ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
+  }
 }
 
 function renderAnimChords() {
