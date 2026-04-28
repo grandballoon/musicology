@@ -1083,11 +1083,10 @@ function renderNoteArc(pc, isActive) {
   const lp = angleXY(ang, R_LABEL, CX, CY);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '17px "Inconsolata", monospace';
+  ctx.font = 'bold 20px "Inconsolata", monospace';
   ctx.fillStyle = 'rgba(60,50,40,0.75)';
   ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
   if (alpha > 0) {
-    ctx.font = 'bold 20px "Inconsolata", monospace';
     ctx.fillStyle = hexAlpha(colorBoosted, alpha);
     ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
   }
