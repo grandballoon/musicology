@@ -865,6 +865,7 @@ const state = {
   animPhase:       null,
   animT:           0,
   animFadeAlpha:   1,
+  animShootChord:  null,
 };
 
 function rebuildActiveNotes() {
@@ -1093,26 +1094,57 @@ function renderNoteArc(pc, isActive) {
 
 function renderAnimChords() {
   const R_CHORD = R_POLY;
-  state.animChords.forEach(({ from, to }, i) => {
+  const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
+
+  state.animChords.forEach(({ from, to }) => {
     const p1 = angleXY(currentNoteAngle(from), R_CHORD, CX, CY);
     const p2 = angleXY(currentNoteAngle(to),   R_CHORD, CX, CY);
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
-    const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
     ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], 0.35 * fa);
     ctx.lineWidth = 1.2;
     ctx.stroke();
   });
+
+  // Chord currently shooting across
+  if (state.animShootChord) {
+    const { from, to, t } = state.animShootChord;
+    const p1 = angleXY(currentNoteAngle(from), R_CHORD, CX, CY);
+    const p2 = angleXY(currentNoteAngle(to),   R_CHORD, CX, CY);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t);
+    ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], 0.75 * fa);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
   // Dots at every visited node
   state.animHighlighted.forEach(pc => {
     const p = angleXY(currentNoteAngle(pc), R_CHORD, CX, CY);
-    const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
     ctx.fillStyle = hexAlpha(NOTE_COLORS_BOOSTED[pc], fa);
     ctx.fill();
   });
+}
+
+function shootChord(from, to, duration, onComplete) {
+  const startTime = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - startTime) / duration);
+    state.animShootChord = { from, to, t };
+    render();
+    if (t < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      state.animChords.push({ from, to });
+      state.animShootChord = null;
+      onComplete();
+    }
+  }
+  requestAnimationFrame(tick);
 }
 
 function renderCenterText(info) {
@@ -1544,11 +1576,9 @@ function startChromaticAnimation() {
     }
     const from = reversePath[step];
     const to   = reversePath[step + 1];
-    state.animChords.push({ from, to });
     state.animHighlighted.add(to);
-    render();
     step++;
-    setTimeout(traceTick, 83);
+    shootChord(from, to, 60, () => setTimeout(traceTick, 23));
   }
   setTimeout(traceTick, 83);
 }
@@ -1566,20 +1596,15 @@ function startFifthsAnimation(autoRotate = false) {
     if (step >= FIFTHS_PATH.length - 1) {
       state.animating = false;
       state.animPhase = 'traced';
-      if (autoRotate) {
-        startRotationAnimation();
-      } else {
-        render();
-      }
+      if (autoRotate) startRotationAnimation();
+      else render();
       return;
     }
     const from = FIFTHS_PATH[step];
     const to   = FIFTHS_PATH[step + 1];
-    state.animChords.push({ from, to });
     state.animHighlighted.add(to);
-    render();
     step++;
-    setTimeout(tick, 260);
+    shootChord(from, to, 200, () => setTimeout(tick, 60));
   }
   setTimeout(tick, 320);
 }
@@ -1590,6 +1615,7 @@ function clearFifthsAnimation() {
   state.animHighlighted = new Set();
   state.animPhase       = null;
   state.animT           = 0;
+  state.animShootChord  = null;
   state.buttonView      = state.view;
   render();
 }
