@@ -865,6 +865,7 @@ const state = {
   animHighlighted: new Set(),
   animPhase:       null,
   animT:           0,
+  animFadeAlpha:   1,
 };
 
 function rebuildActiveNotes() {
@@ -1049,18 +1050,20 @@ function renderNoteArc(pc, isActive) {
   const span = (Math.PI * 2 / 12) * 0.82;
   const startAng = ang - span / 2;
   const endAng = ang + span / 2;
-  const color = NOTE_COLORS[pc];
   const colorBoosted = NOTE_COLORS_BOOSTED[pc];
+  const alpha = isActive
+    ? (state.animPhase === 'fade' ? state.animFadeAlpha : 1)
+    : 0;
 
   ctx.beginPath();
   ctx.arc(CX, CY, R_OUTER, startAng, endAng);
   ctx.arc(CX, CY, R_INNER, endAng, startAng, true);
   ctx.closePath();
 
-  if (isActive) {
-    ctx.fillStyle = hexAlpha(colorBoosted, 0.14);
+  if (alpha > 0) {
+    ctx.fillStyle = hexAlpha(colorBoosted, 0.14 * alpha);
     ctx.fill();
-    ctx.strokeStyle = hexAlpha(colorBoosted, 0.70);
+    ctx.strokeStyle = hexAlpha(colorBoosted, 0.70 * alpha);
     ctx.lineWidth = 1.5;
     ctx.stroke();
   } else {
@@ -1073,10 +1076,10 @@ function renderNoteArc(pc, isActive) {
 
   // Label
   const lp = angleXY(ang, R_LABEL, CX, CY);
-  ctx.font = isActive ? 'bold 20px "Cinzel", serif' : '17px "Inconsolata", monospace';
+  ctx.font = alpha > 0 ? 'bold 20px "Cinzel", serif' : '17px "Inconsolata", monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = isActive ? colorBoosted : 'rgba(60,50,40,0.75)';
+  ctx.fillStyle = alpha > 0 ? hexAlpha(colorBoosted, alpha) : 'rgba(60,50,40,0.75)';
   ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
 }
 
@@ -1089,16 +1092,18 @@ function renderAnimChords() {
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
-    ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], isMostRecent ? 0.85 : 0.35);
+    const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
+    ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], (isMostRecent ? 0.85 : 0.35) * fa);
     ctx.lineWidth = isMostRecent ? 2 : 1.2;
     ctx.stroke();
   });
   // Dots at every visited node
   state.animHighlighted.forEach(pc => {
     const p = angleXY(currentNoteAngle(pc), R_CHORD, CX, CY);
+    const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-    ctx.fillStyle = NOTE_COLORS_BOOSTED[pc];
+    ctx.fillStyle = hexAlpha(NOTE_COLORS_BOOSTED[pc], fa);
     ctx.fill();
   });
 }
@@ -1512,12 +1517,29 @@ function startRotationAnimation() {
     if (raw < 1) {
       requestAnimationFrame(tick);
     } else {
-      state.animT           = 1;
-      state.animPhase       = null;
-      state.animChords      = [];
-      state.animHighlighted = new Set();
-      state.view            = 'fifths';
+      state.animT         = 1;
+      state.animPhase     = 'fade';
+      state.animFadeAlpha = 1;
+      state.view          = 'fifths';
       render();
+
+      const fadeDuration = 3000;
+      const fadeStart    = performance.now();
+      function fadeTick(now) {
+        const raw = Math.min(1, (now - fadeStart) / fadeDuration);
+        state.animFadeAlpha = 1 - raw;
+        render();
+        if (raw < 1) {
+          requestAnimationFrame(fadeTick);
+        } else {
+          state.animPhase       = null;
+          state.animChords      = [];
+          state.animHighlighted = new Set();
+          state.animFadeAlpha   = 1;
+          render();
+        }
+      }
+      requestAnimationFrame(fadeTick);
     }
   }
   requestAnimationFrame(tick);
