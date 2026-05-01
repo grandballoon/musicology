@@ -613,6 +613,16 @@ canvas {
   border-color: oklch(72% 0.12 75);
   color: var(--gold);
 }
+
+/* Wide canvas for Tonnetz */
+.canvas-wrap.wide {
+  width:  min(700px, calc(100vw - var(--sidebar-w) - 3rem));
+  height: min(480px, calc(min(700px, calc(100vw - var(--sidebar-w) - 3rem)) * 480 / 700));
+}
+body.qwerty-open .canvas-wrap.wide {
+  width:  min(620px, calc(100vw - var(--sidebar-w) - 3rem));
+  height: calc(min(620px, calc(100vw - var(--sidebar-w) - 3rem)) * 480 / 700);
+}
 </style>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
@@ -747,8 +757,9 @@ canvas {
 
   <!-- CONTROLS -->
   <div class="controls">
-    <button class="btn active" id="btnChromatic" onclick="setView('chromatic')">Chromatic circle</button>
-    <button class="btn" id="btnFifths" onclick="setView('fifths')">Circle of fifths</button>
+    <button class="btn active" id="btnChromatic" onclick="setView('chromatic')">Chromatic ⌘1</button>
+    <button class="btn" id="btnFifths" onclick="setView('fifths')">Fifths ⌘2</button>
+    <button class="btn" id="btnTonnetz" onclick="setView('tonnetz')">Tonnetz ⌘3</button>
     <button class="btn" id="btnPolygon" onclick="togglePolygon()">Show polygon</button>
     <button class="btn" id="btnMic" onclick="toggleMic()">Mic input</button>
     <button class="btn active" id="btnSound" onclick="toggleSound()">Sound on</button>
@@ -933,30 +944,60 @@ function render() {
   renderQwerty();
 }
 
-// ── Canvas (light-mode) ──
+// ── Canvas dispatcher ──
 
 function renderCanvas(info) {
-  ctx.clearRect(0, 0, SIZE, SIZE);
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Fill page background (same warm off-white as --bg)
+  ctx.fillStyle = '#f3f0e8';
+  ctx.fillRect(0, 0, W, H);
+
+  const showCircle = anim.cirAlpha > 0.005;
+  const showTon    = anim.tonAlpha > 0.005;
+
+  if (showTon) {
+    ctx.save();
+    ctx.globalAlpha = anim.tonAlpha;
+    renderTonnetzView(info);
+    ctx.restore();
+  }
+
+  if (showCircle) {
+    ctx.save();
+    ctx.globalAlpha = anim.cirAlpha;
+    const cx = W / 2, cy = H / 2;
+    ctx.translate(cx + anim.circleOffsetX, cy);
+    ctx.scale(anim.circleScale, anim.circleScale);
+    ctx.translate(-cx, -cy);
+    renderCircleView(info, W, H);
+    ctx.restore();
+  }
+}
+
+function renderCircleView(info, W, H) {
+  const cx = W / 2, cy = H / 2;
 
   // Background disc — warm light
-  const bgGrad = ctx.createRadialGradient(CX, CY, 0, CX, CY, R_OUTER + 30);
+  const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, R_OUTER + 30);
   bgGrad.addColorStop(0, '#faf9f6');
   bgGrad.addColorStop(1, '#f0ede6');
   ctx.beginPath();
-  ctx.arc(CX, CY, R_OUTER + 28, 0, Math.PI * 2);
+  ctx.arc(cx, cy, R_OUTER + 28, 0, Math.PI * 2);
   ctx.fillStyle = bgGrad;
   ctx.fill();
 
   // Outer rim
   ctx.beginPath();
-  ctx.arc(CX, CY, R_OUTER + 4, 0, Math.PI * 2);
+  ctx.arc(cx, cy, R_OUTER + 4, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(160,148,130,0.35)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
   // Inner rim
   ctx.beginPath();
-  ctx.arc(CX, CY, R_INNER - 4, 0, Math.PI * 2);
+  ctx.arc(cx, cy, R_INNER - 4, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(160,148,130,0.22)';
   ctx.lineWidth = 1;
   ctx.stroke();
@@ -964,8 +1005,8 @@ function renderCanvas(info) {
   // Axis lines (very faint)
   for (let i = 0; i < 12; i++) {
     const ang = (i / 12) * Math.PI * 2 - Math.PI / 2;
-    const p1 = angleXY(ang, R_INNER - 8, CX, CY);
-    const p2 = angleXY(ang, R_OUTER + 8, CX, CY);
+    const p1 = angleXY(ang, R_INNER - 8, cx, cy);
+    const p2 = angleXY(ang, R_OUTER + 8, cx, cy);
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
@@ -976,26 +1017,27 @@ function renderCanvas(info) {
 
   // Polygon
   if (state.showPolygon && info.count >= 2) {
-    renderPolygon(info.sorted);
+    renderPolygon(info.sorted, cx, cy);
   }
 
   // Note arcs
   for (let i = 0; i < 12; i++) {
-    renderNoteArc(i, state.activeNotes.has(i));
+    renderNoteArc(i, state.activeNotes.has(i), cx, cy);
   }
 
-  renderCenterText(info);
+  renderCenterText(info, cx, cy);
 
-  // View label
+  // View label + hotkey badge
+  const circView = (anim.arcT < 1 && anim.arcTo) ? anim.arcTo : state.view;
+  const label = circView === 'chromatic' ? 'CHROMATIC · semitone order  ⌘1' : 'CIRCLE OF FIFTHS · key order  ⌘2';
   ctx.font = '8px "Inconsolata", monospace';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(120,110,95,0.30)';
-  const label = state.view === 'chromatic' ? 'CHROMATIC · semitone order' : 'CIRCLE OF FIFTHS · key order';
-  ctx.fillText(label, CX, CY + R_INNER - 20);
+  ctx.fillText(label, cx, cy + R_INNER - 20);
 }
 
-function renderPolygon(sorted) {
-  const points = sorted.map(pc => angleXY(noteAngle(pc, state.view), R_POLY, CX, CY));
+function renderPolygon(sorted, cx, cy) {
+  const points = sorted.map(pc => angleXY(currentNoteAngle(pc), R_POLY, cx, cy));
   const col = NOTE_COLORS[sorted[0]];
 
   ctx.beginPath();
@@ -1021,8 +1063,8 @@ function renderPolygon(sorted) {
   }
 }
 
-function renderNoteArc(pc, isActive) {
-  const ang = noteAngle(pc, state.view);
+function renderNoteArc(pc, isActive, cx, cy) {
+  const ang = currentNoteAngle(pc);
   const span = (Math.PI * 2 / 12) * 0.82;
   const startAng = ang - span / 2;
   const endAng = ang + span / 2;
@@ -1030,8 +1072,8 @@ function renderNoteArc(pc, isActive) {
   const colorBoosted = NOTE_COLORS_BOOSTED[pc];
 
   ctx.beginPath();
-  ctx.arc(CX, CY, R_OUTER, startAng, endAng);
-  ctx.arc(CX, CY, R_INNER, endAng, startAng, true);
+  ctx.arc(cx, cy, R_OUTER, startAng, endAng);
+  ctx.arc(cx, cy, R_INNER, endAng, startAng, true);
   ctx.closePath();
 
   if (isActive) {
@@ -1049,7 +1091,7 @@ function renderNoteArc(pc, isActive) {
   }
 
   // Label
-  const lp = angleXY(ang, R_LABEL, CX, CY);
+  const lp = angleXY(ang, R_LABEL, cx, cy);
   ctx.font = isActive ? 'bold 25px "Cinzel", serif' : '20px "Inconsolata", monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -1057,38 +1099,166 @@ function renderNoteArc(pc, isActive) {
   ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
 }
 
-function renderCenterText(info) {
+function renderCenterText(info, cx, cy) {
   if (info.count === 0) {
     ctx.font = '11px "Inconsolata", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(120,110,95,0.35)';
-    ctx.fillText('play a note', CX, CY - 8);
-    ctx.fillText('to begin', CX, CY + 10);
+    ctx.fillText('play a note', cx, cy - 8);
+    ctx.fillText('to begin', cx, cy + 10);
   } else if (info.count === 1) {
     const pc = info.sorted[0];
     ctx.font = 'bold 28px "Cinzel", serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = NOTE_COLORS[pc];
-    ctx.fillText(NOTE_NAMES[pc], CX, CY - 4);
+    ctx.fillText(NOTE_NAMES[pc], cx, cy - 4);
     ctx.font = '9px "Inconsolata", monospace';
     ctx.fillStyle = 'rgba(120,110,95,0.45)';
-    ctx.fillText('pc ' + pc, CX, CY + 18);
+    ctx.fillText('pc ' + pc, cx, cy + 18);
   } else {
     ctx.font = '10px "Inconsolata", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(80,70,60,0.55)';
-    ctx.fillText(info.count + ' notes', CX, CY - 14);
+    ctx.fillText(info.count + ' notes', cx, cy - 14);
     ctx.fillStyle = NOTE_COLORS[info.sorted[0]];
     ctx.font = '9px "Inconsolata", monospace';
     if (info.count === 2) {
-      ctx.fillText(info.intervalName, CX, CY + 2);
+      ctx.fillText(info.intervalName, cx, cy + 2);
     }
     ctx.fillStyle = 'rgba(80,70,60,0.40)';
-    ctx.fillText('set {' + info.sorted.join(',') + '}', CX, CY + 18);
+    ctx.fillText('set {' + info.sorted.join(',') + '}', cx, cy + 18);
   }
+}
+
+// ── Tonnetz (Neo-Riemannian lattice) ──
+
+function renderTonnetzView(info) {
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+
+  // Grid geometry: axial (q, r) — q=P5 right, r=M3 up-right
+  // pc(q,r) = ((q*7 + r*4) % 12 + 12) % 12
+  const DQ = { x: 58, y: 0 };
+  const DR = { x: 29, y: -50 };
+  const nodeR = 21;
+  const fadeRadius = Math.min(W, H) * 0.52;
+
+  // Collect nodes
+  const qRange = Math.ceil(W / DQ.x) + 3;
+  const rRange = Math.ceil(H / 50) + 3;
+  const nodeMap = new Map();
+  const nodes = [];
+  for (let r = -rRange; r <= rRange; r++) {
+    for (let q = -qRange; q <= qRange; q++) {
+      const px = cx + q * DQ.x + r * DR.x;
+      const py = cy + q * DQ.y + r * DR.y;
+      if (px < -nodeR * 3 || px > W + nodeR * 3) continue;
+      if (py < -nodeR * 3 || py > H + nodeR * 3) continue;
+      const pc = ((q * 7 + r * 4) % 12 + 12) % 12;
+      const dx = px - cx, dy = py - cy;
+      const fade = Math.max(0, 1 - Math.sqrt(dx*dx + dy*dy) / fadeRadius);
+      const node = { q, r, px, py, pc, fade };
+      nodes.push(node);
+      nodeMap.set(`${q},${r}`, node);
+    }
+  }
+
+  function getNode(q, r) { return nodeMap.get(`${q},${r}`); }
+
+  // Draw triad fills
+  for (const { q, r, px, py, pc, fade } of nodes) {
+    if (fade <= 0) continue;
+    const nR  = getNode(q + 1, r);
+    const nUR = getNode(q, r + 1);
+    const nDR = getNode(q + 1, r - 1);
+    // Major triad: (q,r), (q+1,r), (q,r+1) → root, P5, M3
+    if (nR && nUR) {
+      const pcs = [pc, nR.pc, nUR.pc];
+      const ac = pcs.filter(p => state.activeNotes.has(p)).length;
+      if (ac >= 2) {
+        const f = Math.min(fade, nR.fade, nUR.fade);
+        ctx.beginPath();
+        ctx.moveTo(px, py); ctx.lineTo(nR.px, nR.py); ctx.lineTo(nUR.px, nUR.py);
+        ctx.closePath();
+        ctx.fillStyle = hexAlpha(NOTE_COLORS[pc], f * (ac === 3 ? 0.28 : 0.12));
+        ctx.fill();
+      }
+    }
+    // Minor triad: (q,r), (q+1,r-1), (q+1,r) → root, m3, P5
+    if (nDR && nR) {
+      const pcs = [pc, nDR.pc, nR.pc];
+      const ac = pcs.filter(p => state.activeNotes.has(p)).length;
+      if (ac >= 2) {
+        const f = Math.min(fade, nDR.fade, nR.fade);
+        ctx.beginPath();
+        ctx.moveTo(px, py); ctx.lineTo(nDR.px, nDR.py); ctx.lineTo(nR.px, nR.py);
+        ctx.closePath();
+        ctx.fillStyle = hexAlpha(NOTE_COLORS[pc], f * (ac === 3 ? 0.22 : 0.09));
+        ctx.fill();
+      }
+    }
+  }
+
+  // Draw edges
+  for (const { q, r, px, py, pc, fade } of nodes) {
+    if (fade <= 0.02) continue;
+    for (const [dq, dr] of [[1,0],[0,1],[1,-1]]) {
+      const nb = getNode(q + dq, r + dr);
+      if (!nb) continue;
+      const ef = Math.min(fade, nb.fade);
+      const bothOn = state.activeNotes.has(pc) && state.activeNotes.has(nb.pc);
+      ctx.beginPath();
+      ctx.moveTo(px, py); ctx.lineTo(nb.px, nb.py);
+      ctx.strokeStyle = bothOn ? hexAlpha(NOTE_COLORS[pc], ef * 0.65) : `rgba(120,110,95,${ef * 0.13})`;
+      ctx.lineWidth = bothOn ? 2 : 0.75;
+      ctx.stroke();
+    }
+  }
+
+  // Draw nodes
+  for (const { px, py, pc, fade } of nodes) {
+    if (fade <= 0.02) continue;
+    const isActive = state.activeNotes.has(pc);
+    const col = isActive ? NOTE_COLORS_BOOSTED[pc] : NOTE_COLORS[pc];
+
+    ctx.beginPath();
+    ctx.arc(px, py, nodeR, 0, Math.PI * 2);
+    if (isActive) {
+      ctx.fillStyle = hexAlpha(col, fade * 0.22);
+      ctx.fill();
+      ctx.strokeStyle = hexAlpha(col, fade * 0.9);
+      ctx.lineWidth = 2;
+    } else {
+      ctx.fillStyle = `rgba(250,249,246,${fade * 0.88})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(160,150,135,${fade * 0.22})`;
+      ctx.lineWidth = 0.75;
+    }
+    ctx.stroke();
+
+    ctx.font = isActive ? `bold 13px "Cinzel", serif` : `11px "Inconsolata", monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = isActive ? hexAlpha(col, fade) : `rgba(60,50,40,${fade * 0.65})`;
+    ctx.fillText(NOTE_NAMES[pc], px, py);
+  }
+
+  // Edge vignette — fades to page bg colour
+  const vig = ctx.createRadialGradient(cx, cy, fadeRadius * 0.55, cx, cy, Math.max(W, H) * 0.75);
+  vig.addColorStop(0, 'rgba(243,240,232,0)');
+  vig.addColorStop(1, 'rgba(243,240,232,1)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  // Label + hotkey badge
+  ctx.font = '8px "Inconsolata", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(120,110,95,0.32)';
+  ctx.fillText('TONNETZ · neo-riemannian lattice  ⌘3', cx, H - 14);
 }
 
 // ── Readout panel ──
@@ -1135,6 +1305,7 @@ function renderKeyboard() {
 function renderControls() {
   document.getElementById('btnChromatic').classList.toggle('active', state.view === 'chromatic');
   document.getElementById('btnFifths').classList.toggle('active', state.view === 'fifths');
+  document.getElementById('btnTonnetz').classList.toggle('active', state.view === 'tonnetz');
   document.getElementById('btnPolygon').classList.toggle('active', state.showPolygon);
   document.getElementById('btnMic').classList.toggle('active', state.micActive);
   document.getElementById('btnSound').classList.toggle('active', state.soundEnabled);
@@ -1197,6 +1368,14 @@ function renderMidiStatus() {
 const keysDown = new Set();
 
 document.addEventListener('keydown', e => {
+  // Cmd/Ctrl + 1/2/3 → view shortcuts
+  if ((e.metaKey || e.ctrlKey) && (e.key === '1' || e.key === '2' || e.key === '3')) {
+    e.preventDefault();
+    if (e.key === '1') setView('chromatic');
+    else if (e.key === '2') setView('fifths');
+    else if (e.key === '3') setView('tonnetz');
+    return;
+  }
   if (keysDown.has(e.key)) return;
   const pc = KEY_MAP[e.key.toLowerCase()];
   if (pc !== undefined) {
@@ -1406,41 +1585,176 @@ function toggleQwerty() {
   document.body.classList.toggle('qwerty-open', state.showQwerty);
   renderControls();
 }
-function setView(v) { state.view = v; render(); }
 function togglePolygon() { state.showPolygon = !state.showPolygon; render(); }
+
+// ═══════════════════════════════════════════════════════════════
+// ANIMATION SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
+const anim = {
+  // Arc interpolation (chromatic ↔ fifths)
+  arcFrom: null, arcTo: null, arcT: 1, arcDur: 380, arcStart: 0,
+  // View crossfade (circle ↔ tonnetz)
+  fadeT: 1, fadeDur: 420, fadeStart: 0,
+  fadeFromView: null,   // which circle view we came from
+  cirAlpha: 1,          // opacity of circle layer
+  tonAlpha: 0,          // opacity of tonnetz layer
+  // For chromatic→tonnetz: scale circle down; for fifths→tonnetz: slide circle left
+  circleScale: 1,
+  circleOffsetX: 0,
+  rafId: null,
+};
+
+function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+function lerpAngle(a, b, t) {
+  let diff = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  return a + diff * t;
+}
+
+function animLoop(ts) {
+  let needsFrame = false;
+
+  // Arc interpolation
+  if (anim.arcT < 1) {
+    anim.arcT = Math.min(1, (ts - anim.arcStart) / anim.arcDur);
+    needsFrame = anim.arcT < 1;
+  }
+
+  // Crossfade
+  if (anim.fadeT < 1) {
+    anim.fadeT = Math.min(1, (ts - anim.fadeStart) / anim.fadeDur);
+    const e = easeInOut(anim.fadeT);
+    const goingTo = anim.tonAlpha < 0.5 ? 'tonnetz' : 'circle';
+
+    if (goingTo === 'tonnetz') {
+      anim.cirAlpha = 1 - e;
+      anim.tonAlpha = e;
+      if (anim.fadeFromView === 'chromatic') {
+        anim.circleScale = 1 - 0.35 * e;
+        anim.circleOffsetX = 0;
+      } else {
+        anim.circleScale = 1;
+        anim.circleOffsetX = -canvas.width * 0.45 * e;
+      }
+    } else {
+      anim.cirAlpha = e;
+      anim.tonAlpha = 1 - e;
+      if (anim.fadeFromView === 'chromatic') {
+        anim.circleScale = 0.65 + 0.35 * e;
+        anim.circleOffsetX = 0;
+      } else {
+        anim.circleScale = 1;
+        anim.circleOffsetX = canvas.width * 0.45 * (1 - e);
+      }
+    }
+    needsFrame = anim.fadeT < 1;
+  }
+
+  render();
+  anim.rafId = needsFrame ? requestAnimationFrame(animLoop) : null;
+}
+
+function startAnim() {
+  if (!anim.rafId) anim.rafId = requestAnimationFrame(animLoop);
+}
+
+function currentNoteAngle(pc) {
+  if (anim.arcT >= 1 || !anim.arcFrom) {
+    const v = (state.view === 'tonnetz') ? 'chromatic' : state.view;
+    return noteAngle(pc, v);
+  }
+  return lerpAngle(noteAngle(pc, anim.arcFrom), noteAngle(pc, anim.arcTo), easeInOut(anim.arcT));
+}
+
+function setCanvasWide(wide) {
+  canvas.width  = wide ? 700 : 480;
+  canvas.height = 480;
+  document.querySelector('.canvas-wrap').classList.toggle('wide', wide);
+}
+
+function setView(v) {
+  const prev = state.view;
+  if (v === prev) return;
+
+  if (v === 'tonnetz') {
+    // Cancel any ongoing arc anim
+    anim.arcT = 1;
+    anim.fadeFromView = prev;
+    anim.cirAlpha = 1; anim.tonAlpha = 0;
+    anim.circleScale = 1; anim.circleOffsetX = 0;
+    anim.fadeT = 0; anim.fadeStart = performance.now();
+    state.view = 'tonnetz';
+    setCanvasWide(true);
+    startAnim();
+  } else if (prev === 'tonnetz') {
+    anim.fadeFromView = v; // target circle view, used to determine reverse effect
+    anim.cirAlpha = 0; anim.tonAlpha = 1;
+    // Set reverse transforms
+    if (v === 'chromatic') { anim.circleScale = 0.65; anim.circleOffsetX = 0; }
+    else                   { anim.circleScale = 1;    anim.circleOffsetX = canvas.width * 0.45; }
+    anim.fadeT = 0; anim.fadeStart = performance.now();
+    state.view = v;
+    // Shrink canvas after fade
+    setTimeout(() => setCanvasWide(false), anim.fadeDur + 30);
+    startAnim();
+  } else {
+    // Circle to circle: arc interpolation
+    anim.arcFrom = prev; anim.arcTo = v;
+    anim.arcT = 0; anim.arcStart = performance.now();
+    state.view = v;
+    startAnim();
+  }
+
+  renderControls();
+}
 function toggleSound() {
   state.soundEnabled = !state.soundEnabled;
-  if (!state.soundEnabled) synth.releaseAll();
+  if (!state.soundEnabled) synthReleaseAll();
   render();
 }
 function clearAll() {
   state.keyboardHeld.clear();
   state.clickHeld.clear();
   state.midiHeld.clear();
-  synth.releaseAll();
+  synthReleaseAll();
   rebuildActiveNotes();
 }
 
 
 // ═══════════════════════════════════════════════════════════════
-// SOUND
+// SOUND — lazy-loaded Salamander grand piano via Tone.Sampler
 // ═══════════════════════════════════════════════════════════════
 
 const NOTE_NAMES_TONE = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
 let toneStarted = false;
-const synth = new Tone.PolySynth(Tone.Synth, {
-  maxPolyphony: 16,
-  voice: Tone.Synth,
-  options: {
-    oscillator: { type: 'triangle' },
-    envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.8 },
-    volume: -12,
-  },
-}).toDestination();
+let sampler = null;
+let samplerReady = false;
+let samplerLoading = false;
 
 async function ensureToneStarted() {
   if (!toneStarted) { await Tone.start(); toneStarted = true; }
+}
+
+function ensureSampler() {
+  if (samplerReady || samplerLoading) return;
+  samplerLoading = true;
+  sampler = new Tone.Sampler({
+    urls: {
+      A0:'A0.mp3', C1:'C1.mp3', 'D#1':'Ds1.mp3', 'F#1':'Fs1.mp3',
+      A1:'A1.mp3', C2:'C2.mp3', 'D#2':'Ds2.mp3', 'F#2':'Fs2.mp3',
+      A2:'A2.mp3', C3:'C3.mp3', 'D#3':'Ds3.mp3', 'F#3':'Fs3.mp3',
+      A3:'A3.mp3', C4:'C4.mp3', 'D#4':'Ds4.mp3', 'F#4':'Fs4.mp3',
+      A4:'A4.mp3', C5:'C5.mp3', 'D#5':'Ds5.mp3', 'F#5':'Fs5.mp3',
+      A5:'A5.mp3', C6:'C6.mp3', 'D#6':'Ds6.mp3', 'F#6':'Fs6.mp3',
+      A6:'A6.mp3', C7:'C7.mp3', 'D#7':'Ds7.mp3', 'F#7':'Fs7.mp3',
+      A7:'A7.mp3', C8:'C8.mp3',
+    },
+    release: 1,
+    baseUrl: 'https://tonejs.github.io/audio/salamander/',
+    onload: () => { samplerReady = true; samplerLoading = false; },
+  }).toDestination();
 }
 
 function pcToNoteName(pc, octave) {
@@ -1456,11 +1770,16 @@ function midiNoteToName(noteNumber) {
 function synthAttack(noteName) {
   if (!state.soundEnabled) return;
   ensureToneStarted();
-  synth.triggerAttack(noteName);
+  ensureSampler();
+  if (samplerReady) sampler.triggerAttack(noteName, Tone.now());
 }
 
 function synthRelease(noteName) {
-  synth.triggerRelease(noteName);
+  if (samplerReady) sampler.triggerRelease(noteName, Tone.now());
+}
+
+function synthReleaseAll() {
+  if (samplerReady) sampler.releaseAll();
 }
 
 
@@ -1532,7 +1851,9 @@ function buildQwerty() {
 
 // ── Canvas note interaction ──
 function getPcAtCanvasPoint(x, y) {
-  const dx = x - CX, dy = y - CY;
+  if (state.view === 'tonnetz') return null; // tonnetz doesn't use arc hit detection
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const dx = x - cx, dy = y - cy;
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist < R_INNER || dist > R_OUTER + 10) return null;
   const angle = Math.atan2(dy, dx);
