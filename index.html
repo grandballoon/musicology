@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -749,7 +750,9 @@ canvas {
   <div class="controls">
     <button class="btn active" id="btnChromatic" onclick="switchToChromatic()">Chromatic circle</button>
     <button class="btn" id="btnFifths" onclick="switchToFifths()">Circle of fifths</button>
+    <button class="btn" id="btnTonnetz" onclick="switchToTonnetz()">Tonnetz</button>
     <button class="btn" id="btnPolygon" onclick="togglePolygon()">Show polygon</button>
+    <button class="btn" id="btnArcs" onclick="toggleArcs()">Show arcs</button>
     <button class="btn" id="btnMic" onclick="toggleMic()">Mic input</button>
     <button class="btn active" id="btnSound" onclick="toggleSound()">Sound on</button>
     <button class="btn" id="btnQwerty" onclick="toggleQwerty()">Key map</button>
@@ -850,6 +853,7 @@ const state = {
   midiAccess:    null,
   midiConnected: false,
   midiDeviceName: null,
+  midiError:     null,
   showQwerty:  true,
   buttonView:  'chromatic',
   micActive:    false,
@@ -865,9 +869,13 @@ const state = {
   animPhase:       null,
   animT:           0,
   animFadeAlpha:   1,
+  animShootChord:  null,
+  activationOrder: [],
+  showArcs:        false,
 };
 
 function rebuildActiveNotes() {
+  const prev = state.activeNotes;
   const next = new Set([
     ...state.keyboardHeld,
     ...state.clickHeld,
@@ -875,6 +883,16 @@ function rebuildActiveNotes() {
     ...state.midiHeld.values(),
   ]);
   if (state.micNote !== null) next.add(state.micNote);
+  for (const pc of next) {
+    if (!prev.has(pc) && !state.activationOrder.includes(pc))
+      state.activationOrder.push(pc);
+  }
+  for (const pc of prev) {
+    if (!next.has(pc)) {
+      const i = state.activationOrder.indexOf(pc);
+      if (i !== -1) state.activationOrder.splice(i, 1);
+    }
+  }
   state.activeNotes = next;
   render();
 }
@@ -955,6 +973,7 @@ function render() {
 // ── Canvas (light-mode) ──
 
 function renderCanvas(info) {
+  if (state.view === 'tonnetz') { renderTonnetz(); return; }
   ctx.clearRect(0, 0, SIZE, SIZE);
 
   // Background disc — warm light
@@ -1004,9 +1023,11 @@ function renderCanvas(info) {
     renderNoteArc(i, isActive);
   }
 
-  // Fifths animation chords
-  if (state.animChords.length > 0) renderAnimChords();
+  // Outer arcs (alternative to polygon)
+  if (state.showArcs) renderArcs();
 
+  // Fifths animation chords
+  if (state.animChords.length > 0 || state.animShootChord) renderAnimChords();
   renderCenterText(info);
 
   // View label
@@ -1093,26 +1114,194 @@ function renderNoteArc(pc, isActive) {
 
 function renderAnimChords() {
   const R_CHORD = R_POLY;
-  state.animChords.forEach(({ from, to }, i) => {
+  const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
+
+  state.animChords.forEach(({ from, to }) => {
     const p1 = angleXY(currentNoteAngle(from), R_CHORD, CX, CY);
     const p2 = angleXY(currentNoteAngle(to),   R_CHORD, CX, CY);
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
-    const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
     ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], 0.35 * fa);
     ctx.lineWidth = 1.2;
     ctx.stroke();
   });
+
+  // Chord currently shooting across
+  if (state.animShootChord) {
+    const { from, to, t } = state.animShootChord;
+    const p1 = angleXY(currentNoteAngle(from), R_CHORD, CX, CY);
+    const p2 = angleXY(currentNoteAngle(to),   R_CHORD, CX, CY);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t);
+    ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], 0.75 * fa);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
   // Dots at every visited node
   state.animHighlighted.forEach(pc => {
     const p = angleXY(currentNoteAngle(pc), R_CHORD, CX, CY);
-    const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
     ctx.fillStyle = hexAlpha(NOTE_COLORS_BOOSTED[pc], fa);
     ctx.fill();
   });
+}
+
+function shootChord(from, to, duration, onComplete) {
+  const startTime = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - startTime) / duration);
+    state.animShootChord = { from, to, t };
+    render();
+    if (t < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      state.animChords.push({ from, to });
+      state.animShootChord = null;
+      onComplete();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+function getActivationPairs() {
+  const order = state.activationOrder;
+  const pairs = [];
+  for (let i = 0; i < order.length - 1; i++)
+    pairs.push({ from: order[i], to: order[i + 1] });
+  return pairs;
+}
+
+function drawArcBetween(from, to, R, alpha, lw, fraction) {
+  const ang1 = currentNoteAngle(from);
+  const ang2 = currentNoteAngle(to);
+  let diff = ang2 - ang1;
+  diff = ((diff + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  const endAng = ang1 + diff * fraction;
+  ctx.beginPath();
+  ctx.arc(CX, CY, R, ang1, endAng, diff < 0);
+  ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], alpha);
+  ctx.lineWidth = lw;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+}
+
+function drawArcDot(pc, R, fa) {
+  const p = angleXY(currentNoteAngle(pc), R, CX, CY);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = hexAlpha(NOTE_COLORS_BOOSTED[pc], fa);
+  ctx.fill();
+}
+
+function renderArcs() {
+  const R_BASE = R_OUTER + 12;
+  const R_STEP = 10;
+  const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
+  const inAnimation = state.animChords.length > 0 || state.animShootChord !== null;
+  const completed = inAnimation ? state.animChords : getActivationPairs();
+
+  completed.forEach(({ from, to }, i) => {
+    const R = R_BASE + i * R_STEP;
+    drawArcBetween(from, to, R, 0.35 * fa, 1.2, 1);
+    drawArcDot(from, R, fa);
+    drawArcDot(to, R, fa);
+  });
+
+  if (state.animShootChord) {
+    const { from, to, t } = state.animShootChord;
+    const R = R_BASE + state.animChords.length * R_STEP;
+    drawArcBetween(from, to, R, 0.75 * fa, 1.5, t);
+    drawArcDot(from, R, fa);
+  }
+}
+
+function renderTonnetz() {
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  ctx.fillStyle = '#faf9f6';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  const DX = 48, DY = 33, NR = 14;
+  const COLS = [-4,-3,-2,-1,0,1,2,3,4];
+  const ROWS = [-3,-2,-1,0,1,2,3];
+
+  function tpos(i, j) {
+    return { x: CX + i * DX + j * DX / 2, y: CY - j * DY };
+  }
+  function tpc(i, j) {
+    return ((i * 7 + j * 4) % 12 + 12) % 12;
+  }
+
+  // Triad fills — upward = major, downward = minor
+  for (const j of ROWS) {
+    for (const i of COLS) {
+      const fill = (pts, pcs) => {
+        if (!pcs.every(p => state.activeNotes.has(p))) return;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        ctx.lineTo(pts[1].x, pts[1].y);
+        ctx.lineTo(pts[2].x, pts[2].y);
+        ctx.closePath();
+        ctx.fillStyle = hexAlpha(NOTE_COLORS[pcs[0]], 0.12);
+        ctx.fill();
+      };
+      if (COLS.includes(i+1) && ROWS.includes(j+1))
+        fill([tpos(i,j), tpos(i+1,j), tpos(i,j+1)],
+             [tpc(i,j),  tpc(i+1,j),  tpc(i,j+1)]);
+      if (COLS.includes(i+1) && ROWS.includes(j-1))
+        fill([tpos(i,j), tpos(i+1,j), tpos(i+1,j-1)],
+             [tpc(i,j),  tpc(i+1,j),  tpc(i+1,j-1)]);
+    }
+  }
+
+  // Edges
+  ctx.lineCap = 'round';
+  for (const j of ROWS) {
+    for (const i of COLS) {
+      const p0 = tpos(i,j), pc0 = tpc(i,j);
+      const edge = (p1, pc1) => {
+        const active = state.activeNotes.has(pc0) && state.activeNotes.has(pc1);
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.strokeStyle = active ? hexAlpha(NOTE_COLORS[pc0], 0.65) : 'rgba(120,110,95,0.15)';
+        ctx.lineWidth   = active ? 2 : 0.8;
+        ctx.stroke();
+      };
+      if (COLS.includes(i+1))                      edge(tpos(i+1,j),   tpc(i+1,j));
+      if (ROWS.includes(j+1))                      edge(tpos(i,j+1),   tpc(i,j+1));
+      if (COLS.includes(i+1) && ROWS.includes(j-1)) edge(tpos(i+1,j-1), tpc(i+1,j-1));
+    }
+  }
+
+  // Nodes
+  for (const j of ROWS) {
+    for (const i of COLS) {
+      const { x, y } = tpos(i, j);
+      const pcv = tpc(i, j);
+      const active = state.activeNotes.has(pcv);
+      ctx.beginPath();
+      ctx.arc(x, y, NR, 0, Math.PI * 2);
+      ctx.fillStyle   = active ? hexAlpha(NOTE_COLORS_BOOSTED[pcv], 0.88) : '#faf9f6';
+      ctx.fill();
+      ctx.strokeStyle = active ? NOTE_COLORS[pcv] : 'rgba(160,150,135,0.4)';
+      ctx.lineWidth   = active ? 1.5 : 0.8;
+      ctx.stroke();
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font         = 'bold 10px "Inconsolata", monospace';
+      ctx.fillStyle    = active ? '#fff' : 'rgba(60,50,40,0.65)';
+      ctx.fillText(NOTE_NAMES[pcv], x, y);
+    }
+  }
+
+  ctx.font      = '8px "Inconsolata", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(120,110,95,0.30)';
+  ctx.fillText('TONNETZ · harmonic lattice', CX, SIZE - 12);
 }
 
 function renderCenterText(info) {
@@ -1193,9 +1382,13 @@ function renderKeyboard() {
 function renderControls() {
   document.getElementById('btnChromatic').classList.toggle('active', state.buttonView === 'chromatic');
   document.getElementById('btnFifths').classList.toggle('active', state.buttonView === 'fifths');
+  document.getElementById('btnTonnetz').classList.toggle('active', state.buttonView === 'tonnetz');
   document.getElementById('btnPolygon').classList.toggle('active', state.showPolygon);
+  document.getElementById('btnArcs').classList.toggle('active', state.showArcs);
   document.getElementById('btnMic').classList.toggle('active', state.micActive);
-  document.getElementById('btnSound').classList.toggle('active', state.soundEnabled);
+  const soundBtn = document.getElementById('btnSound');
+  soundBtn.classList.toggle('active', state.soundEnabled && synthReady);
+  soundBtn.textContent = synthReady ? 'Sound on' : 'Loading…';
   document.getElementById('btnQwerty').classList.toggle('active', state.showQwerty);
   document.getElementById('qwertyWrap').classList.toggle('visible', state.showQwerty);
   document.body.classList.toggle('qwerty-open', state.showQwerty);
@@ -1235,7 +1428,10 @@ function renderMicStatus() {
 function renderMidiStatus() {
   const dot = document.getElementById('midiDot');
   const label = document.getElementById('midiStatus');
-  if (state.midiConnected) {
+  if (state.midiError) {
+    dot.className = 'status-dot';
+    label.textContent = state.midiError;
+  } else if (state.midiConnected) {
     const noteCount = state.midiHeld.size;
     dot.className = noteCount > 0 ? 'status-dot on' : 'status-dot searching';
     const name = state.midiDeviceName || 'MIDI device';
@@ -1300,13 +1496,21 @@ function handlePianoClick(pc) {
 // ═══════════════════════════════════════════════════════════════
 
 async function initMIDI() {
-  if (!navigator.requestMIDIAccess) return;
+  if (!navigator.requestMIDIAccess) {
+    state.midiError = 'not supported in this browser';
+    render();
+    return;
+  }
   try {
     const access = await navigator.requestMIDIAccess();
+    state.midiError = null;
     state.midiAccess = access;
     attachMIDIInputs(access);
     access.onstatechange = () => attachMIDIInputs(access);
-  } catch (e) {}
+  } catch (e) {
+    state.midiError = e.message || 'access denied';
+    render();
+  }
 }
 
 function attachMIDIInputs(access) {
@@ -1469,8 +1673,12 @@ function toggleQwerty() {
 }
 function setView(v) { state.view = v; state.buttonView = v; render(); }
 function togglePolygon() { state.showPolygon = !state.showPolygon; render(); }
+function toggleArcs()   { state.showArcs    = !state.showArcs;    render(); }
 
 function switchToChromatic() {
+  if (state.view === 'tonnetz') {
+    state.view = 'chromatic'; state.buttonView = 'chromatic'; render(); return;
+  }
   if (state.animPhase === 'rotate-back') return;
   clearFifthsAnimation();
   if (state.view === 'chromatic') return;
@@ -1478,10 +1686,20 @@ function switchToChromatic() {
 }
 
 function switchToFifths() {
+  if (state.view === 'tonnetz') {
+    state.view = 'fifths'; state.buttonView = 'fifths'; render(); return;
+  }
   if (state.animating || state.animPhase === 'rotate' || state.animPhase === 'rotate-back' || state.animPhase === 'fade') return;
   if (state.view === 'fifths' && !state.animPhase) return;
   state.buttonView = 'fifths';
   startFifthsAnimation(true);
+}
+
+function switchToTonnetz() {
+  state.animating = false; state.animChords = []; state.animHighlighted = new Set();
+  state.animPhase = null;  state.animT = 0;       state.animShootChord  = null;
+  state.view = 'tonnetz';  state.buttonView = 'tonnetz';
+  render();
 }
 
 function startChromaticAnimation() {
@@ -1505,7 +1723,7 @@ function startChromaticAnimation() {
       state.animPhase       = 'rotate-back';
       render();
 
-      const duration  = 1600;
+      const duration  = 1000;
       const startTime = performance.now();
       function rotateTick(now) {
         const raw   = Math.min(1, (now - startTime) / duration);
@@ -1544,11 +1762,12 @@ function startChromaticAnimation() {
     }
     const from = reversePath[step];
     const to   = reversePath[step + 1];
-    state.animChords.push({ from, to });
-    state.animHighlighted.add(to);
-    render();
     step++;
-    setTimeout(traceTick, 83);
+    shootChord(from, to, 27, () => {
+      state.animHighlighted.add(to);
+      render();
+      setTimeout(traceTick, step >= reversePath.length - 1 ? 10 : 16);
+    });
   }
   setTimeout(traceTick, 83);
 }
@@ -1566,22 +1785,20 @@ function startFifthsAnimation(autoRotate = false) {
     if (step >= FIFTHS_PATH.length - 1) {
       state.animating = false;
       state.animPhase = 'traced';
-      if (autoRotate) {
-        startRotationAnimation();
-      } else {
-        render();
-      }
+      if (autoRotate) startRotationAnimation();
+      else render();
       return;
     }
     const from = FIFTHS_PATH[step];
     const to   = FIFTHS_PATH[step + 1];
-    state.animChords.push({ from, to });
-    state.animHighlighted.add(to);
-    render();
     step++;
-    setTimeout(tick, 100);
+    shootChord(from, to, 30, () => {
+      state.animHighlighted.add(to);
+      render();
+      setTimeout(tick, step >= FIFTHS_PATH.length - 1 ? 10 : 23);
+    });
   }
-  setTimeout(tick, 100);
+  setTimeout(tick, 83);
 }
 
 function clearFifthsAnimation() {
@@ -1590,6 +1807,7 @@ function clearFifthsAnimation() {
   state.animHighlighted = new Set();
   state.animPhase       = null;
   state.animT           = 0;
+  state.animShootChord  = null;
   state.buttonView      = state.view;
   render();
 }
@@ -1598,7 +1816,7 @@ function startRotationAnimation() {
   if (state.animPhase !== 'traced') return;
   state.animPhase = 'rotate';
   state.animT     = 0;
-  const duration  = 1600;
+  const duration  = 1000;
   const startTime = performance.now();
 
   function tick(now) {
@@ -1645,6 +1863,7 @@ function clearAll() {
   state.keyboardHeld.clear();
   state.clickHeld.clear();
   state.midiHeld.clear();
+  state.activationOrder = [];
   synth.releaseAll();
   rebuildActiveNotes();
 }
@@ -1657,14 +1876,22 @@ function clearAll() {
 const NOTE_NAMES_TONE = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
 let toneStarted = false;
-const synth = new Tone.PolySynth(Tone.Synth, {
-  maxPolyphony: 16,
-  voice: Tone.Synth,
-  options: {
-    oscillator: { type: 'triangle' },
-    envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.8 },
-    volume: -12,
+let synthReady = false;
+
+const synth = new Tone.Sampler({
+  urls: {
+    A0:'A0.mp3',  C1:'C1.mp3',  'D#1':'Ds1.mp3', 'F#1':'Fs1.mp3',
+    A1:'A1.mp3',  C2:'C2.mp3',  'D#2':'Ds2.mp3', 'F#2':'Fs2.mp3',
+    A2:'A2.mp3',  C3:'C3.mp3',  'D#3':'Ds3.mp3', 'F#3':'Fs3.mp3',
+    A3:'A3.mp3',  C4:'C4.mp3',  'D#4':'Ds4.mp3', 'F#4':'Fs4.mp3',
+    A4:'A4.mp3',  C5:'C5.mp3',  'D#5':'Ds5.mp3', 'F#5':'Fs5.mp3',
+    A5:'A5.mp3',  C6:'C6.mp3',  'D#6':'Ds6.mp3', 'F#6':'Fs6.mp3',
+    A6:'A6.mp3',  C7:'C7.mp3',  'D#7':'Ds7.mp3', 'F#7':'Fs7.mp3',
+    A7:'A7.mp3',  C8:'C8.mp3',
   },
+  release: 1.2,
+  baseUrl: 'https://tonejs.github.io/audio/salamander/',
+  onload: () => { synthReady = true; render(); },
 }).toDestination();
 
 async function ensureToneStarted() {
@@ -1682,12 +1909,13 @@ function midiNoteToName(noteNumber) {
 }
 
 function synthAttack(noteName) {
-  if (!state.soundEnabled) return;
+  if (!state.soundEnabled || !synthReady) return;
   ensureToneStarted();
   synth.triggerAttack(noteName);
 }
 
 function synthRelease(noteName) {
+  if (!synthReady) return;
   synth.triggerRelease(noteName);
 }
 
