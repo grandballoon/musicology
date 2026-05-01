@@ -1318,6 +1318,7 @@ function renderCenterText(info) {
 
 function renderReadout(info) {
   const nameEl = document.getElementById('noteName');
+  if (!nameEl) return;
   const intEl  = document.getElementById('infoInterval');
   const shpEl  = document.getElementById('infoShape');
   const semEl  = document.getElementById('infoSemitones');
