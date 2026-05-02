@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -747,12 +748,15 @@ canvas {
 
   <!-- CONTROLS -->
   <div class="controls">
-    <button class="btn active" id="btnChromatic" onclick="setView('chromatic')">Chromatic circle</button>
-    <button class="btn" id="btnFifths" onclick="setView('fifths')">Circle of fifths</button>
+    <button class="btn active" id="btnChromatic" onclick="switchToChromatic()">Chromatic circle</button>
+    <button class="btn" id="btnFifths" onclick="switchToFifths()">Circle of fifths</button>
+    <button class="btn" id="btnTonnetz" onclick="switchToTonnetz()">Tonnetz</button>
     <button class="btn" id="btnPolygon" onclick="togglePolygon()">Show polygon</button>
+    <button class="btn" id="btnArcs" onclick="toggleArcs()">Show arcs</button>
     <button class="btn" id="btnMic" onclick="toggleMic()">Mic input</button>
     <button class="btn active" id="btnSound" onclick="toggleSound()">Sound on</button>
     <button class="btn" id="btnQwerty" onclick="toggleQwerty()">Key map</button>
+
     <button class="btn" id="btnClear" onclick="clearAll()">Clear</button>
   </div>
 
@@ -813,6 +817,8 @@ const INTERVAL_NAMES = [
   'Minor 6th','Major 6th','Minor 7th','Major 7th'
 ];
 
+const FIFTHS_PATH = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5, 0];
+
 const SHAPE_NAMES = {
   2:'Line', 3:'Triangle', 4:'Quadrilateral', 5:'Pentagon', 6:'Hexagon',
   7:'Heptagon', 8:'Octagon', 9:'Nonagon', 10:'Decagon', 11:'Undecagon', 12:'Dodecagon'
@@ -847,17 +853,29 @@ const state = {
   midiAccess:    null,
   midiConnected: false,
   midiDeviceName: null,
-  showQwerty:  false,
+  midiError:     null,
+  showQwerty:  true,
+  buttonView:  'chromatic',
   micActive:    false,
   micDenied:    false,
   audioCtx:     null,
   analyser:     null,
   micStream:    null,
-  animFrame:    null,
-  pitchHistory: [],
+  animFrame:       null,
+  pitchHistory:    [],
+  animating:       false,
+  animChords:      [],
+  animHighlighted: new Set(),
+  animPhase:       null,
+  animT:           0,
+  animFadeAlpha:   1,
+  animShootChord:  null,
+  activationOrder: [],
+  showArcs:        false,
 };
 
 function rebuildActiveNotes() {
+  const prev = state.activeNotes;
   const next = new Set([
     ...state.keyboardHeld,
     ...state.clickHeld,
@@ -865,6 +883,16 @@ function rebuildActiveNotes() {
     ...state.midiHeld.values(),
   ]);
   if (state.micNote !== null) next.add(state.micNote);
+  for (const pc of next) {
+    if (!prev.has(pc) && !state.activationOrder.includes(pc))
+      state.activationOrder.push(pc);
+  }
+  for (const pc of prev) {
+    if (!next.has(pc)) {
+      const i = state.activationOrder.indexOf(pc);
+      if (i !== -1) state.activationOrder.splice(i, 1);
+    }
+  }
   state.activeNotes = next;
   render();
 }
@@ -884,6 +912,15 @@ function hexAlpha(hex, alpha) {
 function noteAngle(pc, viewMode) {
   const pos = viewMode === 'chromatic' ? pc : FIFTHS_ORDER.indexOf(pc);
   return (pos / 12) * Math.PI * 2 - Math.PI / 2;
+}
+
+function currentNoteAngle(pc) {
+  if (state.animPhase === 'rotate' || state.animPhase === 'rotate-back') {
+    const chromAngle = (pc / 12) * Math.PI * 2 - Math.PI / 2;
+    const delta = (pc === FIFTHS_ORDER.indexOf(pc)) ? 0 : Math.PI;
+    return chromAngle + state.animT * delta;
+  }
+  return noteAngle(pc, state.view);
 }
 
 function angleXY(angle, r, cx, cy) {
@@ -936,6 +973,7 @@ function render() {
 // ── Canvas (light-mode) ──
 
 function renderCanvas(info) {
+  if (state.view === 'tonnetz') { renderTonnetz(); return; }
   ctx.clearRect(0, 0, SIZE, SIZE);
 
   // Background disc — warm light
@@ -981,9 +1019,15 @@ function renderCanvas(info) {
 
   // Note arcs
   for (let i = 0; i < 12; i++) {
-    renderNoteArc(i, state.activeNotes.has(i));
+    const isActive = state.activeNotes.has(i) || state.animHighlighted.has(i);
+    renderNoteArc(i, isActive);
   }
 
+  // Outer arcs (alternative to polygon)
+  if (state.showArcs) renderArcs();
+
+  // Fifths animation chords
+  if (state.animChords.length > 0 || state.animShootChord) renderAnimChords();
   renderCenterText(info);
 
   // View label
@@ -1022,39 +1066,242 @@ function renderPolygon(sorted) {
 }
 
 function renderNoteArc(pc, isActive) {
-  const ang = noteAngle(pc, state.view);
+  const ang = currentNoteAngle(pc);
   const span = (Math.PI * 2 / 12) * 0.82;
   const startAng = ang - span / 2;
   const endAng = ang + span / 2;
-  const color = NOTE_COLORS[pc];
   const colorBoosted = NOTE_COLORS_BOOSTED[pc];
+  const alpha = isActive
+    ? (state.animPhase === 'fade' ? state.animFadeAlpha : 1)
+    : 0;
 
+  // Always draw inactive base so it shows through during fade
   ctx.beginPath();
   ctx.arc(CX, CY, R_OUTER, startAng, endAng);
   ctx.arc(CX, CY, R_INNER, endAng, startAng, true);
   ctx.closePath();
+  ctx.fillStyle = 'rgba(180,170,155,0.10)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(160,150,135,0.18)';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
 
-  if (isActive) {
-    ctx.fillStyle = hexAlpha(colorBoosted, 0.14);
+  // Overlay active highlight, fading into the base
+  if (alpha > 0) {
+    ctx.beginPath();
+    ctx.arc(CX, CY, R_OUTER, startAng, endAng);
+    ctx.arc(CX, CY, R_INNER, endAng, startAng, true);
+    ctx.closePath();
+    ctx.fillStyle = hexAlpha(colorBoosted, 0.14 * alpha);
     ctx.fill();
-    ctx.strokeStyle = hexAlpha(colorBoosted, 0.70);
+    ctx.strokeStyle = hexAlpha(colorBoosted, 0.70 * alpha);
     ctx.lineWidth = 1.5;
-    ctx.stroke();
-  } else {
-    ctx.fillStyle = 'rgba(180,170,155,0.10)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(160,150,135,0.18)';
-    ctx.lineWidth = 0.5;
     ctx.stroke();
   }
 
-  // Label
+  // Label: inactive base always visible, active overlaid and fading
   const lp = angleXY(ang, R_LABEL, CX, CY);
-  ctx.font = isActive ? 'bold 25px "Cinzel", serif' : '20px "Inconsolata", monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = isActive ? colorBoosted : 'rgba(60,50,40,0.75)';
+  ctx.font = 'bold 20px "Inconsolata", monospace';
+  ctx.fillStyle = 'rgba(60,50,40,0.75)';
   ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
+  if (alpha > 0) {
+    ctx.fillStyle = hexAlpha(colorBoosted, alpha);
+    ctx.fillText(NOTE_NAMES[pc], lp.x, lp.y);
+  }
+}
+
+function renderAnimChords() {
+  const R_CHORD = R_POLY;
+  const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
+
+  state.animChords.forEach(({ from, to }) => {
+    const p1 = angleXY(currentNoteAngle(from), R_CHORD, CX, CY);
+    const p2 = angleXY(currentNoteAngle(to),   R_CHORD, CX, CY);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], 0.35 * fa);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  });
+
+  // Chord currently shooting across
+  if (state.animShootChord) {
+    const { from, to, t } = state.animShootChord;
+    const p1 = angleXY(currentNoteAngle(from), R_CHORD, CX, CY);
+    const p2 = angleXY(currentNoteAngle(to),   R_CHORD, CX, CY);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t);
+    ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], 0.75 * fa);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Dots at every visited node
+  state.animHighlighted.forEach(pc => {
+    const p = angleXY(currentNoteAngle(pc), R_CHORD, CX, CY);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(NOTE_COLORS_BOOSTED[pc], fa);
+    ctx.fill();
+  });
+}
+
+function shootChord(from, to, duration, onComplete) {
+  const startTime = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - startTime) / duration);
+    state.animShootChord = { from, to, t };
+    render();
+    if (t < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      state.animChords.push({ from, to });
+      state.animShootChord = null;
+      onComplete();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+function getActivationPairs() {
+  const order = state.activationOrder;
+  const pairs = [];
+  for (let i = 0; i < order.length - 1; i++)
+    pairs.push({ from: order[i], to: order[i + 1] });
+  return pairs;
+}
+
+function drawArcBetween(from, to, R, alpha, lw, fraction) {
+  const ang1 = currentNoteAngle(from);
+  const ang2 = currentNoteAngle(to);
+  let diff = ang2 - ang1;
+  diff = ((diff + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  const endAng = ang1 + diff * fraction;
+  ctx.beginPath();
+  ctx.arc(CX, CY, R, ang1, endAng, diff < 0);
+  ctx.strokeStyle = hexAlpha(NOTE_COLORS[from], alpha);
+  ctx.lineWidth = lw;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+}
+
+function drawArcDot(pc, R, fa) {
+  const p = angleXY(currentNoteAngle(pc), R, CX, CY);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = hexAlpha(NOTE_COLORS_BOOSTED[pc], fa);
+  ctx.fill();
+}
+
+function renderArcs() {
+  const R_BASE = R_OUTER + 12;
+  const R_STEP = 10;
+  const fa = state.animPhase === 'fade' ? state.animFadeAlpha : 1;
+  const inAnimation = state.animChords.length > 0 || state.animShootChord !== null;
+  const completed = inAnimation ? state.animChords : getActivationPairs();
+
+  completed.forEach(({ from, to }, i) => {
+    const R = R_BASE + i * R_STEP;
+    drawArcBetween(from, to, R, 0.35 * fa, 1.2, 1);
+    drawArcDot(from, R, fa);
+    drawArcDot(to, R, fa);
+  });
+
+  if (state.animShootChord) {
+    const { from, to, t } = state.animShootChord;
+    const R = R_BASE + state.animChords.length * R_STEP;
+    drawArcBetween(from, to, R, 0.75 * fa, 1.5, t);
+    drawArcDot(from, R, fa);
+  }
+}
+
+function renderTonnetz() {
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  ctx.fillStyle = '#faf9f6';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  const DX = 48, DY = 33, NR = 14;
+  const COLS = [-4,-3,-2,-1,0,1,2,3,4];
+  const ROWS = [-3,-2,-1,0,1,2,3];
+
+  function tpos(i, j) {
+    return { x: CX + i * DX + j * DX / 2, y: CY - j * DY };
+  }
+  function tpc(i, j) {
+    return ((i * 7 + j * 4) % 12 + 12) % 12;
+  }
+
+  // Triad fills — upward = major, downward = minor
+  for (const j of ROWS) {
+    for (const i of COLS) {
+      const fill = (pts, pcs) => {
+        if (!pcs.every(p => state.activeNotes.has(p))) return;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        ctx.lineTo(pts[1].x, pts[1].y);
+        ctx.lineTo(pts[2].x, pts[2].y);
+        ctx.closePath();
+        ctx.fillStyle = hexAlpha(NOTE_COLORS[pcs[0]], 0.12);
+        ctx.fill();
+      };
+      if (COLS.includes(i+1) && ROWS.includes(j+1))
+        fill([tpos(i,j), tpos(i+1,j), tpos(i,j+1)],
+             [tpc(i,j),  tpc(i+1,j),  tpc(i,j+1)]);
+      if (COLS.includes(i+1) && ROWS.includes(j-1))
+        fill([tpos(i,j), tpos(i+1,j), tpos(i+1,j-1)],
+             [tpc(i,j),  tpc(i+1,j),  tpc(i+1,j-1)]);
+    }
+  }
+
+  // Edges
+  ctx.lineCap = 'round';
+  for (const j of ROWS) {
+    for (const i of COLS) {
+      const p0 = tpos(i,j), pc0 = tpc(i,j);
+      const edge = (p1, pc1) => {
+        const active = state.activeNotes.has(pc0) && state.activeNotes.has(pc1);
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.strokeStyle = active ? hexAlpha(NOTE_COLORS[pc0], 0.65) : 'rgba(120,110,95,0.15)';
+        ctx.lineWidth   = active ? 2 : 0.8;
+        ctx.stroke();
+      };
+      if (COLS.includes(i+1))                      edge(tpos(i+1,j),   tpc(i+1,j));
+      if (ROWS.includes(j+1))                      edge(tpos(i,j+1),   tpc(i,j+1));
+      if (COLS.includes(i+1) && ROWS.includes(j-1)) edge(tpos(i+1,j-1), tpc(i+1,j-1));
+    }
+  }
+
+  // Nodes
+  for (const j of ROWS) {
+    for (const i of COLS) {
+      const { x, y } = tpos(i, j);
+      const pcv = tpc(i, j);
+      const active = state.activeNotes.has(pcv);
+      ctx.beginPath();
+      ctx.arc(x, y, NR, 0, Math.PI * 2);
+      ctx.fillStyle   = active ? hexAlpha(NOTE_COLORS_BOOSTED[pcv], 0.88) : '#faf9f6';
+      ctx.fill();
+      ctx.strokeStyle = active ? NOTE_COLORS[pcv] : 'rgba(160,150,135,0.4)';
+      ctx.lineWidth   = active ? 1.5 : 0.8;
+      ctx.stroke();
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font         = 'bold 10px "Inconsolata", monospace';
+      ctx.fillStyle    = active ? '#fff' : 'rgba(60,50,40,0.65)';
+      ctx.fillText(NOTE_NAMES[pcv], x, y);
+    }
+  }
+
+  ctx.font      = '8px "Inconsolata", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(120,110,95,0.30)';
+  ctx.fillText('TONNETZ · harmonic lattice', CX, SIZE - 12);
 }
 
 function renderCenterText(info) {
@@ -1133,13 +1380,18 @@ function renderKeyboard() {
 }
 
 function renderControls() {
-  document.getElementById('btnChromatic').classList.toggle('active', state.view === 'chromatic');
-  document.getElementById('btnFifths').classList.toggle('active', state.view === 'fifths');
+  document.getElementById('btnChromatic').classList.toggle('active', state.buttonView === 'chromatic');
+  document.getElementById('btnFifths').classList.toggle('active', state.buttonView === 'fifths');
+  document.getElementById('btnTonnetz').classList.toggle('active', state.buttonView === 'tonnetz');
   document.getElementById('btnPolygon').classList.toggle('active', state.showPolygon);
+  document.getElementById('btnArcs').classList.toggle('active', state.showArcs);
   document.getElementById('btnMic').classList.toggle('active', state.micActive);
-  document.getElementById('btnSound').classList.toggle('active', state.soundEnabled);
+  const soundBtn = document.getElementById('btnSound');
+  soundBtn.classList.toggle('active', state.soundEnabled && synthReady);
+  soundBtn.textContent = synthReady ? 'Sound on' : 'Loading…';
   document.getElementById('btnQwerty').classList.toggle('active', state.showQwerty);
   document.getElementById('qwertyWrap').classList.toggle('visible', state.showQwerty);
+  document.body.classList.toggle('qwerty-open', state.showQwerty);
   renderQwerty();
 }
 
@@ -1176,7 +1428,10 @@ function renderMicStatus() {
 function renderMidiStatus() {
   const dot = document.getElementById('midiDot');
   const label = document.getElementById('midiStatus');
-  if (state.midiConnected) {
+  if (state.midiError) {
+    dot.className = 'status-dot';
+    label.textContent = state.midiError;
+  } else if (state.midiConnected) {
     const noteCount = state.midiHeld.size;
     dot.className = noteCount > 0 ? 'status-dot on' : 'status-dot searching';
     const name = state.midiDeviceName || 'MIDI device';
@@ -1197,6 +1452,8 @@ function renderMidiStatus() {
 const keysDown = new Set();
 
 document.addEventListener('keydown', e => {
+  if (e.metaKey && e.key === '1') { e.preventDefault(); switchToChromatic(); return; }
+  if (e.metaKey && e.key === '2') { e.preventDefault(); switchToFifths();    return; }
   if (keysDown.has(e.key)) return;
   const pc = KEY_MAP[e.key.toLowerCase()];
   if (pc !== undefined) {
@@ -1239,13 +1496,21 @@ function handlePianoClick(pc) {
 // ═══════════════════════════════════════════════════════════════
 
 async function initMIDI() {
-  if (!navigator.requestMIDIAccess) return;
+  if (!navigator.requestMIDIAccess) {
+    state.midiError = 'not supported in this browser';
+    render();
+    return;
+  }
   try {
     const access = await navigator.requestMIDIAccess();
+    state.midiError = null;
     state.midiAccess = access;
     attachMIDIInputs(access);
     access.onstatechange = () => attachMIDIInputs(access);
-  } catch (e) {}
+  } catch (e) {
+    state.midiError = e.message || 'access denied';
+    render();
+  }
 }
 
 function attachMIDIInputs(access) {
@@ -1406,8 +1671,189 @@ function toggleQwerty() {
   document.body.classList.toggle('qwerty-open', state.showQwerty);
   renderControls();
 }
-function setView(v) { state.view = v; render(); }
+function setView(v) { state.view = v; state.buttonView = v; render(); }
 function togglePolygon() { state.showPolygon = !state.showPolygon; render(); }
+function toggleArcs()   { state.showArcs    = !state.showArcs;    render(); }
+
+function switchToChromatic() {
+  if (state.view === 'tonnetz') {
+    state.view = 'chromatic'; state.buttonView = 'chromatic'; render(); return;
+  }
+  if (state.animPhase === 'rotate-back') return;
+  clearFifthsAnimation();
+  if (state.view === 'chromatic') return;
+  startChromaticAnimation();
+}
+
+function switchToFifths() {
+  if (state.view === 'tonnetz') {
+    state.view = 'fifths'; state.buttonView = 'fifths'; render(); return;
+  }
+  if (state.animating || state.animPhase === 'rotate' || state.animPhase === 'rotate-back' || state.animPhase === 'fade') return;
+  if (state.view === 'fifths' && !state.animPhase) return;
+  state.buttonView = 'fifths';
+  startFifthsAnimation(true);
+}
+
+function switchToTonnetz() {
+  state.animating = false; state.animChords = []; state.animHighlighted = new Set();
+  state.animPhase = null;  state.animT = 0;       state.animShootChord  = null;
+  state.view = 'tonnetz';  state.buttonView = 'tonnetz';
+  render();
+}
+
+function startChromaticAnimation() {
+  const reversePath = [...FIFTHS_PATH].reverse();
+
+  state.buttonView      = 'chromatic';
+  state.animChords      = [];
+  state.animHighlighted = new Set([reversePath[0]]);
+  state.animFadeAlpha   = 1;
+  state.animating       = true;
+  state.animPhase       = null;
+  state.animT           = 1;
+  state.view            = 'fifths';
+  render();
+
+  let step = 0;
+  function traceTick() {
+    if (step >= reversePath.length - 1) {
+      state.animating       = false;
+      state.animHighlighted = new Set([0,1,2,3,4,5,6,7,8,9,10,11]);
+      state.animPhase       = 'rotate-back';
+      render();
+
+      const duration  = 1000;
+      const startTime = performance.now();
+      function rotateTick(now) {
+        const raw   = Math.min(1, (now - startTime) / duration);
+        const eased = raw < 0.5 ? 4*raw*raw*raw : 1 - Math.pow(-2*raw + 2, 3) / 2;
+        state.animT = 1 - eased;
+        render();
+        if (raw < 1) {
+          requestAnimationFrame(rotateTick);
+        } else {
+          state.animT         = 0;
+          state.animPhase     = 'fade';
+          state.animFadeAlpha = 1;
+          state.view          = 'chromatic';
+          render();
+
+          const fadeStart = performance.now();
+          function fadeTick(now) {
+            const r = Math.min(1, (now - fadeStart) / 300);
+            state.animFadeAlpha = 1 - r;
+            render();
+            if (r < 1) {
+              requestAnimationFrame(fadeTick);
+            } else {
+              state.animPhase       = null;
+              state.animChords      = [];
+              state.animHighlighted = new Set();
+              state.animFadeAlpha   = 1;
+              render();
+            }
+          }
+          requestAnimationFrame(fadeTick);
+        }
+      }
+      requestAnimationFrame(rotateTick);
+      return;
+    }
+    const from = reversePath[step];
+    const to   = reversePath[step + 1];
+    step++;
+    shootChord(from, to, 27, () => {
+      state.animHighlighted.add(to);
+      render();
+      setTimeout(traceTick, step >= reversePath.length - 1 ? 10 : 16);
+    });
+  }
+  setTimeout(traceTick, 83);
+}
+
+function startFifthsAnimation(autoRotate = false) {
+  if (state.animating) return;
+  state.animChords      = [];
+  state.animHighlighted = new Set([0]);
+  state.animating       = true;
+  state.view            = 'chromatic';
+  render();
+
+  let step = 0;
+  function tick() {
+    if (step >= FIFTHS_PATH.length - 1) {
+      state.animating = false;
+      state.animPhase = 'traced';
+      if (autoRotate) startRotationAnimation();
+      else render();
+      return;
+    }
+    const from = FIFTHS_PATH[step];
+    const to   = FIFTHS_PATH[step + 1];
+    step++;
+    shootChord(from, to, 30, () => {
+      state.animHighlighted.add(to);
+      render();
+      setTimeout(tick, step >= FIFTHS_PATH.length - 1 ? 10 : 23);
+    });
+  }
+  setTimeout(tick, 83);
+}
+
+function clearFifthsAnimation() {
+  state.animating       = false;
+  state.animChords      = [];
+  state.animHighlighted = new Set();
+  state.animPhase       = null;
+  state.animT           = 0;
+  state.animShootChord  = null;
+  state.buttonView      = state.view;
+  render();
+}
+
+function startRotationAnimation() {
+  if (state.animPhase !== 'traced') return;
+  state.animPhase = 'rotate';
+  state.animT     = 0;
+  const duration  = 1000;
+  const startTime = performance.now();
+
+  function tick(now) {
+    const raw = Math.min(1, (now - startTime) / duration);
+    // ease in-out cubic
+    state.animT = raw < 0.5 ? 4*raw*raw*raw : 1 - Math.pow(-2*raw + 2, 3) / 2;
+    render();
+    if (raw < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      state.animT         = 1;
+      state.animPhase     = 'fade';
+      state.animFadeAlpha = 1;
+      state.view          = 'fifths';
+      render();
+
+      const fadeDuration = 300;
+      const fadeStart    = performance.now();
+      function fadeTick(now) {
+        const raw = Math.min(1, (now - fadeStart) / fadeDuration);
+        state.animFadeAlpha = 1 - raw;
+        render();
+        if (raw < 1) {
+          requestAnimationFrame(fadeTick);
+        } else {
+          state.animPhase       = null;
+          state.animChords      = [];
+          state.animHighlighted = new Set();
+          state.animFadeAlpha   = 1;
+          render();
+        }
+      }
+      requestAnimationFrame(fadeTick);
+    }
+  }
+  requestAnimationFrame(tick);
+}
 function toggleSound() {
   state.soundEnabled = !state.soundEnabled;
   if (!state.soundEnabled) synth.releaseAll();
@@ -1417,6 +1863,7 @@ function clearAll() {
   state.keyboardHeld.clear();
   state.clickHeld.clear();
   state.midiHeld.clear();
+  state.activationOrder = [];
   synth.releaseAll();
   rebuildActiveNotes();
 }
@@ -1429,14 +1876,22 @@ function clearAll() {
 const NOTE_NAMES_TONE = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
 let toneStarted = false;
-const synth = new Tone.PolySynth(Tone.Synth, {
-  maxPolyphony: 16,
-  voice: Tone.Synth,
-  options: {
-    oscillator: { type: 'triangle' },
-    envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.8 },
-    volume: -12,
+let synthReady = false;
+
+const synth = new Tone.Sampler({
+  urls: {
+    A0:'A0.mp3',  C1:'C1.mp3',  'D#1':'Ds1.mp3', 'F#1':'Fs1.mp3',
+    A1:'A1.mp3',  C2:'C2.mp3',  'D#2':'Ds2.mp3', 'F#2':'Fs2.mp3',
+    A2:'A2.mp3',  C3:'C3.mp3',  'D#3':'Ds3.mp3', 'F#3':'Fs3.mp3',
+    A3:'A3.mp3',  C4:'C4.mp3',  'D#4':'Ds4.mp3', 'F#4':'Fs4.mp3',
+    A4:'A4.mp3',  C5:'C5.mp3',  'D#5':'Ds5.mp3', 'F#5':'Fs5.mp3',
+    A5:'A5.mp3',  C6:'C6.mp3',  'D#6':'Ds6.mp3', 'F#6':'Fs6.mp3',
+    A6:'A6.mp3',  C7:'C7.mp3',  'D#7':'Ds7.mp3', 'F#7':'Fs7.mp3',
+    A7:'A7.mp3',  C8:'C8.mp3',
   },
+  release: 1.2,
+  baseUrl: 'https://tonejs.github.io/audio/salamander/',
+  onload: () => { synthReady = true; render(); },
 }).toDestination();
 
 async function ensureToneStarted() {
@@ -1454,12 +1909,13 @@ function midiNoteToName(noteNumber) {
 }
 
 function synthAttack(noteName) {
-  if (!state.soundEnabled) return;
+  if (!state.soundEnabled || !synthReady) return;
   ensureToneStarted();
   synth.triggerAttack(noteName);
 }
 
 function synthRelease(noteName) {
+  if (!synthReady) return;
   synth.triggerRelease(noteName);
 }
 
